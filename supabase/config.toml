@@ -1,0 +1,4 @@
+project_id = "bcdutilwkqrpknwlkodl"
+
+[functions.generate-invoice]
+verify_jwt = true

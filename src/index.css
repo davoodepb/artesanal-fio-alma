@@ -1,0 +1,317 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Core palette - Artisanal Handcraft (Rosa, Pêssego, Coral) */
+    --background: 38 50% 97%;
+    --foreground: 20 25% 20%;
+
+    --card: 38 45% 99%;
+    --card-foreground: 20 25% 20%;
+
+    --popover: 38 45% 99%;
+    --popover-foreground: 20 25% 20%;
+
+    /* Primary - Soft coral/rose */
+    --primary: 0 65% 72%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 0 65% 65%;
+
+    /* Secondary - Warm cream */
+    --secondary: 38 50% 94%;
+    --secondary-foreground: 20 25% 25%;
+
+    /* Accent - Peachy orange */
+    --accent: 24 78% 78%;
+    --accent-foreground: 20 30% 20%;
+
+    /* Thread/craft brown */
+    --craft: 36 41% 64%;
+    --craft-foreground: 0 0% 100%;
+
+    --muted: 30 20% 94%;
+    --muted-foreground: 20 15% 45%;
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success - Soft sage green */
+    --success: 142 40% 55%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 30 25% 88%;
+    --input: 30 25% 88%;
+    --ring: 347 67% 76%;
+
+    --radius: 1rem;
+
+    /* Sale/discount colors */
+    --sale: 0 65% 65%;
+    --sale-foreground: 0 0% 100%;
+
+    /* Rating stars - warm gold */
+    --star: 36 80% 60%;
+
+    /* Artisanal Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(347, 67%, 86%) 0%, hsl(24, 78%, 85%) 50%, hsl(0, 65%, 75%) 100%);
+    --gradient-soft: linear-gradient(135deg, hsl(38, 50%, 97%) 0%, hsl(347, 50%, 95%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(24, 78%, 82%) 0%, hsl(0, 65%, 72%) 100%);
+
+    /* Soft Shadows */
+    --shadow-sm: 0 1px 3px 0 hsl(20 25% 20% / 0.04);
+    --shadow-md: 0 4px 12px -2px hsl(20 25% 20% / 0.08);
+    --shadow-lg: 0 12px 24px -4px hsl(20 25% 20% / 0.1);
+    --shadow-xl: 0 24px 48px -8px hsl(20 25% 20% / 0.12);
+    --shadow-glow: 0 0 30px hsl(347 67% 76% / 0.25);
+
+    --sidebar-background: 38 50% 97%;
+    --sidebar-foreground: 20 25% 25%;
+    --sidebar-primary: 0 65% 72%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 30 30% 94%;
+    --sidebar-accent-foreground: 20 25% 25%;
+    --sidebar-border: 30 25% 88%;
+    --sidebar-ring: 347 67% 76%;
+  }
+
+  .dark {
+    --background: 20 20% 8%;
+    --foreground: 38 30% 92%;
+
+    --card: 20 18% 12%;
+    --card-foreground: 38 30% 92%;
+
+    --popover: 20 18% 12%;
+    --popover-foreground: 38 30% 92%;
+
+    --primary: 0 55% 65%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 0 55% 58%;
+
+    --secondary: 20 15% 18%;
+    --secondary-foreground: 38 30% 90%;
+
+    --accent: 24 60% 65%;
+    --accent-foreground: 20 20% 10%;
+
+    --craft: 36 35% 55%;
+    --craft-foreground: 0 0% 100%;
+
+    --muted: 20 12% 18%;
+    --muted-foreground: 30 15% 60%;
+
+    --destructive: 0 55% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 45% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 20 12% 22%;
+    --input: 20 12% 22%;
+    --ring: 347 50% 65%;
+
+    --sidebar-background: 20 18% 10%;
+    --sidebar-foreground: 38 30% 90%;
+    --sidebar-primary: 0 55% 65%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 20 12% 18%;
+    --sidebar-accent-foreground: 38 30% 90%;
+    --sidebar-border: 20 12% 22%;
+    --sidebar-ring: 347 50% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer components {
+  /* Product card hover effect - soft artisanal */
+  .product-card {
+    @apply transition-all duration-500 ease-out rounded-2xl;
+    border: 1px solid hsl(var(--border));
+  }
+  
+  .product-card:hover {
+    @apply -translate-y-2;
+    box-shadow: var(--shadow-lg);
+    border-color: hsl(var(--primary) / 0.3);
+  }
+
+  /* Sale badge pulse */
+  .sale-badge {
+    animation: pulse-sale 3s infinite ease-in-out;
+  }
+
+  /* Rating stars */
+  .star-filled {
+    color: hsl(var(--star));
+  }
+
+  /* Hero gradient text - artisanal */
+  .gradient-text {
+    background: var(--gradient-hero);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Smooth image zoom */
+  .image-zoom {
+    @apply transition-transform duration-700 ease-out;
+  }
+
+  .image-zoom:hover {
+    @apply scale-105;
+  }
+
+  /* Glass effect - warmer */
+  .glass {
+    background: hsl(var(--background) / 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply animate-pulse bg-muted rounded-xl;
+  }
+
+  /* Stitch divider - artisanal element */
+  .stitch-divider {
+    background-image: repeating-linear-gradient(
+      90deg,
+      hsl(var(--craft)),
+      hsl(var(--craft)) 8px,
+      transparent 8px,
+      transparent 16px
+    );
+    height: 2px;
+  }
+
+  /* Thread decoration */
+  .thread-accent {
+    position: relative;
+  }
+  
+  .thread-accent::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, 
+      transparent 0%, 
+      hsl(var(--primary)) 20%, 
+      hsl(var(--accent)) 80%, 
+      transparent 100%
+    );
+    border-radius: 2px;
+  }
+
+  /* Soft button style */
+  .btn-artisan {
+    @apply px-6 py-3 rounded-full font-medium transition-all duration-300;
+    background: var(--gradient-accent);
+    color: hsl(var(--primary-foreground));
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-artisan:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Custom animations */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
+  }
+
+  .animate-bounce-subtle {
+    animation: bounceSubtle 2s infinite;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounceSubtle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes pulse-sale {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
