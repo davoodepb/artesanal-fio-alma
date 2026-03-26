@@ -99,14 +99,12 @@ export function HeroSection() {
               
               <div className="absolute top-6 right-6 bg-card/95 backdrop-blur rounded-2xl p-4 shadow-lg border border-craft/20 animate-bounce-subtle">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">🧵</span>
                   <p className="text-sm font-medium text-foreground">Linha & Agulha</p>
                 </div>
               </div>
               
               <div className="absolute bottom-6 left-6 bg-card/95 backdrop-blur rounded-2xl p-4 shadow-lg border border-craft/20">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">✨</span>
                   <p className="text-sm font-medium text-foreground">Peça Exclusiva</p>
                 </div>
               </div>
