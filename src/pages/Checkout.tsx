@@ -262,9 +262,8 @@ const Checkout = () => {
 
     setLoading(true);
     try {
-      // Verify session is still valid before proceeding
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      // Verify user is still authenticated
+      if (!user) {
         toast.error('Sessão expirada. Por favor, faça login novamente.');
         navigate('/login?redirect=/checkout');
         setLoading(false);

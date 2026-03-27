@@ -1,11 +1,38 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import {
+  User as FirebaseUser,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
+import { auth, googleProvider } from '@/lib/firebase';
 import { supabase } from '@/integrations/supabase/client';
-import { authSupabase, isExternalAuthProject } from '@/integrations/supabase/authClient';
+
+// Compatibility layer: expose a user shape that the rest of the app can consume
+// without needing to know about Firebase internals
+interface AppUser {
+  id: string;
+  email: string | null;
+  email_confirmed_at: string | null;
+  user_metadata: {
+    full_name?: string | null;
+    name?: string | null;
+    avatar_url?: string | null;
+    picture?: string | null;
+    provider?: string;
+  };
+  app_metadata: {
+    provider?: string;
+  };
+}
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: AppUser | null;
+  session: { user: AppUser } | null;
   isLoading: boolean;
   isAdmin: boolean;
   isEmailVerified: boolean;
@@ -15,17 +42,36 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   resendOtp: (email: string) => Promise<{ error: Error | null }>;
+  resendVerificationEmail: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function mapFirebaseUser(fbUser: FirebaseUser): AppUser {
+  const isGoogle = fbUser.providerData.some(p => p.providerId === 'google.com');
+  return {
+    id: fbUser.uid,
+    email: fbUser.email,
+    email_confirmed_at: fbUser.emailVerified ? new Date().toISOString() : null,
+    user_metadata: {
+      full_name: fbUser.displayName,
+      name: fbUser.displayName,
+      avatar_url: fbUser.photoURL,
+      picture: fbUser.photoURL,
+      provider: isGoogle ? 'google' : 'email',
+    },
+    app_metadata: {
+      provider: isGoogle ? 'google' : 'email',
+    },
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [firebaseUserRef, setFirebaseUserRef] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
-  const authRedirectTo = import.meta.env.VITE_SITE_URL || window.location.origin;
 
   const checkAdminRole = async (userId: string) => {
     try {
@@ -61,28 +107,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const syncProfileFromAuth = async (authUser: User) => {
-    if (isExternalAuthProject) {
-      return;
-    }
-
+  const syncProfileFromAuth = async (appUser: AppUser) => {
     try {
-      const fullName =
-        authUser.user_metadata?.full_name ||
-        authUser.user_metadata?.name ||
-        null;
-      const avatarUrl =
-        authUser.user_metadata?.avatar_url ||
-        authUser.user_metadata?.picture ||
-        null;
+      const fullName = appUser.user_metadata?.full_name || appUser.user_metadata?.name || null;
+      const avatarUrl = appUser.user_metadata?.avatar_url || appUser.user_metadata?.picture || null;
 
       await supabase
         .from('profiles')
         .upsert(
           {
-            user_id: authUser.id,
+            user_id: appUser.id,
             full_name: fullName,
-            email: authUser.email || null,
+            email: appUser.email || null,
             avatar_url: avatarUrl,
             updated_at: new Date().toISOString(),
           } as any,
@@ -94,174 +130,164 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    const { data: { subscription } } = authSupabase.auth.onAuthStateChange(
-      async (event, authSession) => {
-        setSession(authSession);
-        setUser(authSession?.user ?? null);
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUserRef(fbUser);
 
-        if (authSession?.user) {
-          syncProfileFromAuth(authSession.user);
-          const oauthVerified = authSession.user.app_metadata?.provider && authSession.user.app_metadata?.provider !== 'email';
-          setIsEmailVerified(!!authSession.user.email_confirmed_at || !!oauthVerified);
+      if (fbUser) {
+        const appUser = mapFirebaseUser(fbUser);
+        setUser(appUser);
+        setIsEmailVerified(fbUser.emailVerified || fbUser.providerData.some(p => p.providerId === 'google.com'));
 
-          setTimeout(async () => {
-            if (isExternalAuthProject) {
-              setIsAdmin(false);
-              return;
-            }
+        // Sync profile to Supabase
+        syncProfileFromAuth(appUser);
 
-            const blocked = await checkIfBlocked(authSession.user.id);
-            if (blocked) {
-              await authSupabase.auth.signOut();
-              return;
-            }
-
-            const adminStatus = await checkAdminRole(authSession.user.id);
-            setIsAdmin(adminStatus);
-          }, 0);
-
-          if (!isExternalAuthProject && event === 'SIGNED_IN' && authSession.user.app_metadata?.provider !== 'email') {
-            supabase.functions
-              .invoke('send-login-email')
-              .catch((err) => console.warn('send-login-email (OAuth):', err));
-          }
-        } else {
+        // Check blocked status
+        const blocked = await checkIfBlocked(appUser.id);
+        if (blocked) {
+          await firebaseSignOut(auth);
+          setUser(null);
           setIsAdmin(false);
           setIsEmailVerified(false);
-        }
-
-        setIsLoading(false);
-      }
-    );
-
-    authSupabase.auth.getSession().then(async ({ data: { session: authSession } }) => {
-      setSession(authSession);
-      setUser(authSession?.user ?? null);
-
-      if (authSession?.user) {
-        syncProfileFromAuth(authSession.user);
-        const oauthVerified = authSession.user.app_metadata?.provider && authSession.user.app_metadata?.provider !== 'email';
-        setIsEmailVerified(!!authSession.user.email_confirmed_at || !!oauthVerified);
-
-        if (isExternalAuthProject) {
-          setIsAdmin(false);
           setIsLoading(false);
           return;
         }
 
-        const blocked = await checkIfBlocked(authSession.user.id);
-        if (blocked) {
-          await authSupabase.auth.signOut();
-          setIsLoading(false);
-          return;
-        }
-
-        const adminStatus = await checkAdminRole(authSession.user.id);
+        // Check admin role
+        const adminStatus = await checkAdminRole(appUser.id);
         setIsAdmin(adminStatus);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+        setIsEmailVerified(false);
       }
 
       setIsLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await authSupabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (!error && data.user && data.user.app_metadata?.provider === 'email' && !data.user.email_confirmed_at) {
-      await authSupabase.auth.signOut();
-      return { error: new Error('Email not confirmed') };
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      if (!result.user.emailVerified) {
+        return { error: new Error('Por favor, verifica o teu email antes de iniciar sessão.') };
+      }
+      return { error: null };
+    } catch (err: any) {
+      console.error("SignIn full error:", err);
+      let message = err.message || 'Erro ao entrar';
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        message = 'Email ou palavra-passe incorretos.';
+      } else if (err.code === 'auth/too-many-requests') {
+        message = 'Muitas tentativas falhadas. Tente mais tarde.';
+      } else if (err.code === 'auth/internal-error') {
+        message = 'Erro interno do Firebase. Verifica a consola.';
+      }
+      return { error: new Error(message) };
     }
-
-    if (!error && !isExternalAuthProject) {
-      supabase.functions
-        .invoke('send-login-email')
-        .catch((err) => console.warn('send-login-email edge fn:', err));
-    }
-
-    return { error: error as Error | null };
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await authSupabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: authRedirectTo,
-        data: {
-          full_name: fullName,
-        },
-      },
-    });
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
 
-    const needsVerification = !error && data?.user && !data.user.email_confirmed_at;
-    return { error: error as Error | null, needsVerification: !!needsVerification };
-  };
+      // Send email verification
+      await sendEmailVerification(result.user);
 
-  const verifyOtp = async (email: string, token: string) => {
-    const { error } = await authSupabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'signup',
-    });
-    return { error: error as Error | null };
-  };
+      // Sign out immediately — user must verify email first
+      await firebaseSignOut(auth);
 
-  const resendOtp = async (email: string) => {
-    const { error } = await authSupabase.auth.resend({
-      type: 'signup',
-      email,
-      options: {
-        emailRedirectTo: authRedirectTo,
-      },
-    });
-    return { error: error as Error | null };
-  };
-
-  const signOut = async () => {
-    sessionStorage.removeItem('admin_authenticated');
-    await authSupabase.auth.signOut();
-
-    if (!isExternalAuthProject) {
-      await supabase.auth.signOut();
+      return { error: null, needsVerification: true };
+    } catch (err: any) {
+      console.error("SignUp full error:", err);
+      let message = err.message || 'Erro ao criar conta';
+      if (err.code === 'auth/email-already-in-use') {
+        message = 'Este email já está registado. Tente fazer login.';
+      } else if (err.code === 'auth/weak-password') {
+        message = 'A palavra-passe é muito fraca. Use pelo menos 6 caracteres.';
+      } else if (err.code === 'auth/invalid-email') {
+        message = 'Email inválido.';
+      } else if (err.code === 'auth/internal-error') {
+        message = 'Erro interno do Firebase. Verifica a consola.';
+      }
+      return { error: new Error(message) };
     }
+  };
 
+  const signInWithGoogleHandler = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      return { error: null };
+    } catch (err: any) {
+      console.error("Google login full error:", err);
+      let message = err.message || 'Erro desconhecido ao entrar com Google';
+      if (err.code === 'auth/popup-closed-by-user') {
+        message = 'Login cancelado.';
+      } else if (err.code === 'auth/popup-blocked') {
+        message = 'Popup bloqueado. Permita popups para este site.';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        message = 'Google Login não está ativo no Firebase Console.';
+      } else if (err.code === 'auth/unauthorized-domain') {
+        message = 'Domínio não autorizado no Firebase.';
+      }
+      return { error: new Error(message) };
+    }
+  };
+
+  const handleSignOut = async () => {
+    sessionStorage.removeItem('admin_authenticated');
+    await firebaseSignOut(auth);
     setIsAdmin(false);
     setIsEmailVerified(false);
   };
 
-  const signInWithGoogle = async () => {
-    const { error } = await authSupabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
-      },
-    });
-    return { error: error as Error | null };
+  // OTP functions — Firebase doesn't use OTP codes, but we keep the interface
+  // so that existing code doesn't break. These are no-ops.
+  const verifyOtp = async (_email: string, _token: string) => {
+    return { error: new Error('Firebase uses email link verification, not OTP codes.') };
+  };
+
+  const resendOtp = async (_email: string) => {
+    // If there's a current Firebase user (unverified), resend verification
+    if (firebaseUserRef && !firebaseUserRef.emailVerified) {
+      try {
+        await sendEmailVerification(firebaseUserRef);
+        return { error: null };
+      } catch (err: any) {
+        return { error: new Error(err.message) };
+      }
+    }
+    return { error: new Error('Nenhum utilizador encontrado para reenviar verificação.') };
+  };
+
+  const resendVerificationEmail = async () => {
+    if (firebaseUserRef && !firebaseUserRef.emailVerified) {
+      try {
+        await sendEmailVerification(firebaseUserRef);
+        return { error: null };
+      } catch (err: any) {
+        return { error: new Error(err.message) };
+      }
+    }
+    return { error: new Error('Nenhum utilizador encontrado.') };
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        session,
+        session: user ? { user } : null,
         isLoading,
         isAdmin,
         isEmailVerified,
         signIn,
         signUp,
-        signInWithGoogle,
-        signOut,
+        signInWithGoogle: signInWithGoogleHandler,
+        signOut: handleSignOut,
         verifyOtp,
         resendOtp,
+        resendVerificationEmail,
       }}
     >
       {children}

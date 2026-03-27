@@ -48,14 +48,6 @@ export function ImageUpload({
 
     setIsUploading(true);
     try {
-      // Check auth status first
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error('Sessão expirada. Por favor, faça login novamente.');
-        setIsUploading(false);
-        return;
-      }
-
       // Auto-resize image before upload
       const optimizedFile = await processImageForUpload(file);
 
@@ -219,14 +211,6 @@ export function MultiImageUpload({
     const newUrls: string[] = [];
 
     try {
-      // Check auth status first
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error('Sessão expirada. Por favor, faça login novamente.');
-        setIsUploading(false);
-        return;
-      }
-
       // Auto-resize all images before upload
       const optimizedFiles = await processImagesForUpload(
         files.filter(f => f.type.startsWith('image/') && f.size <= 5 * 1024 * 1024)
