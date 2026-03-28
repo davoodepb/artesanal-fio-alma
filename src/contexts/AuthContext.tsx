@@ -4,7 +4,8 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -81,12 +82,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('user_id', userId)
         .eq('role', 'admin')
         .maybeSingle();
-
       if (error) {
         console.error('Error checking admin role:', error);
         return false;
       }
-
       return data?.role === 'admin';
     } catch (err) {
       console.error('Error checking admin role:', err);
@@ -111,7 +110,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const fullName = appUser.user_metadata?.full_name || appUser.user_metadata?.name || null;
       const avatarUrl = appUser.user_metadata?.avatar_url || appUser.user_metadata?.picture || null;
-
       await supabase
         .from('profiles')
         .upsert(
@@ -130,17 +128,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Handle redirect result on page load (after Google sign-in redirect)
+    getRedirectResult(auth).catch((err) => {
+      console.error('getRedirectResult error:', err);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUserRef(fbUser);
-
       if (fbUser) {
         const appUser = mapFirebaseUser(fbUser);
         setUser(appUser);
         setIsEmailVerified(fbUser.emailVerified || fbUser.providerData.some(p => p.providerId === 'google.com'));
-
         // Sync profile to Supabase
         syncProfileFromAuth(appUser);
-
         // Check blocked status
         const blocked = await checkIfBlocked(appUser.id);
         if (blocked) {
@@ -151,7 +151,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsLoading(false);
           return;
         }
-
         // Check admin role
         const adminStatus = await checkAdminRole(appUser.id);
         setIsAdmin(adminStatus);
@@ -160,10 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false);
         setIsEmailVerified(false);
       }
-
       setIsLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -191,13 +188,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
-
       // Send email verification
       await sendEmailVerification(result.user);
-
       // Sign out immediately — user must verify email first
       await firebaseSignOut(auth);
-
       return { error: null, needsVerification: true };
     } catch (err: any) {
       console.error("SignUp full error:", err);
@@ -217,16 +211,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogleHandler = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      signInWithRedirect(auth, googleProvider);
       return { error: null };
     } catch (err: any) {
       console.error("Google login full error:", err);
       let message = err.message || 'Erro desconhecido ao entrar com Google';
-      if (err.code === 'auth/popup-closed-by-user') {
-        message = 'Login cancelado.';
-      } else if (err.code === 'auth/popup-blocked') {
-        message = 'Popup bloqueado. Permita popups para este site.';
-      } else if (err.code === 'auth/operation-not-allowed') {
+      if (err.code === 'auth/operation-not-allowed') {
         message = 'Google Login não está ativo no Firebase Console.';
       } else if (err.code === 'auth/unauthorized-domain') {
         message = 'Domínio não autorizado no Firebase.';
