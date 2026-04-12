@@ -81,12 +81,11 @@ export function ImageUpload({
   }, [value, imageSource]);
 
   const uploadToFirebase = async (file: File) => {
-    const optimizedFile = await processImageForUpload(file);
-    const fileExt = optimizedFile.name.split('.').pop() || 'webp';
+    const fileExt = file.name.split('.').pop() || 'webp';
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
     const storagePath = `${bucket}/${fileName}`;
 
-    await uploadResumableWithTimeout(storagePath, optimizedFile);
+    await uploadResumableWithTimeout(storagePath, file);
 
     return getDownloadURL(ref(firebaseStorage, storagePath));
   };
@@ -322,11 +321,10 @@ export function MultiImageUpload({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadToFirebase = async (file: File) => {
-    const optimizedFile = await processImageForUpload(file);
-    const fileExt = optimizedFile.name.split('.').pop() || 'webp';
+    const fileExt = file.name.split('.').pop() || 'webp';
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
     const storagePath = `${bucket}/${fileName}`;
-    await uploadResumableWithTimeout(storagePath, optimizedFile);
+    await uploadResumableWithTimeout(storagePath, file);
     return getDownloadURL(ref(firebaseStorage, storagePath));
   };
 

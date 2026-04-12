@@ -189,28 +189,45 @@ export function AdminChat() {
       // Fetch customer names and last messages
       const conversationsWithDetails = await Promise.all(
         (convData || []).map(async (conv) => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, email')
-            .eq('user_id', conv.customer_id)
-            .maybeSingle();
+          let profile: any = null;
+          let lastMsg: any = null;
+          let count: number | null = 0;
 
-          // Get last message
-          const { data: lastMsg } = await supabase
-            .from('chat_messages')
-            .select('content')
-            .eq('conversation_id', conv.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          try {
+            const profileRes = await supabase
+              .from('profiles')
+              .select('full_name, email')
+              .eq('user_id', conv.customer_id)
+              .maybeSingle();
+            profile = profileRes.data || null;
+          } catch {
+            profile = null;
+          }
 
-          // Get unread count
-          const { count } = await supabase
-            .from('chat_messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('conversation_id', conv.id)
-            .eq('is_read', false)
-            .eq('sender_role', 'customer');
+          try {
+            const lastRes = await supabase
+              .from('chat_messages')
+              .select('content')
+              .eq('conversation_id', conv.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            lastMsg = lastRes.data || null;
+          } catch {
+            lastMsg = null;
+          }
+
+          try {
+            const countRes = await supabase
+              .from('chat_messages')
+              .select('*', { count: 'exact', head: true })
+              .eq('conversation_id', conv.id)
+              .eq('is_read', false)
+              .eq('sender_role', 'customer');
+            count = countRes.count || 0;
+          } catch {
+            count = 0;
+          }
 
           return {
             ...conv,

@@ -45,10 +45,13 @@ export function PWAInstallPrompt() {
     const success = await installApp();
     if (success) {
       setShowBanner(false);
+      setDismissed(false);
     }
   };
 
-  if (dismissed || isInstalled || isInStandaloneMode) return null;
+  if (isInstalled || isInStandaloneMode) return null;
+
+  const showFloatingInstallIcon = isInstallable;
 
   // iOS instruction prompt
   if (showIOSPrompt) {
@@ -78,7 +81,23 @@ export function PWAInstallPrompt() {
   }
 
   // Chrome/Edge install banner
-  if (!showBanner) return null;
+  if (!showBanner) {
+    if (!showFloatingInstallIcon) return null;
+
+    return (
+      <div className="fixed bottom-4 right-4 z-50">
+        <Button
+          onClick={handleInstall}
+          size="icon"
+          className="h-12 w-12 rounded-full shadow-xl"
+          aria-label="Instalar app"
+          title="Instalar app"
+        >
+          <Download className="h-5 w-5" />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 animate-in slide-in-from-bottom-5 duration-500">

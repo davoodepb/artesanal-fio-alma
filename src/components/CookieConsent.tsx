@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Cookie, X, Settings2, Check } from 'lucide-react';
 
 const COOKIE_CONSENT_KEY = 'fioealma_cookie_consent';
@@ -12,9 +12,12 @@ interface ConsentState {
 }
 
 export function CookieConsent() {
+  const location = useLocation();
   const [visible, setVisible] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [analyticsChecked, setAnalyticsChecked] = useState(true);
+
+  const isAdminRoute = location.pathname.startsWith('/admin');
 
   useEffect(() => {
     const stored = localStorage.getItem(COOKIE_CONSENT_KEY);
@@ -44,11 +47,11 @@ export function CookieConsent() {
   const acceptEssential = () => saveConsent(false);
   const savePreferences = () => saveConsent(analyticsChecked);
 
-  if (!visible) return null;
+  if (!visible || isAdminRoute) return null;
 
   return (
-    <div className="fixed bottom-0 inset-x-0 z-[60] p-4 animate-in slide-in-from-bottom-4 duration-500">
-      <div className="max-w-2xl mx-auto bg-card border shadow-2xl rounded-2xl overflow-hidden">
+    <div className="fixed bottom-0 inset-x-0 z-[60] p-4 pointer-events-none animate-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-2xl mx-auto bg-card border shadow-2xl rounded-2xl overflow-hidden pointer-events-auto">
         {/* Main banner */}
         <div className="p-5">
           <div className="flex items-start gap-3">
