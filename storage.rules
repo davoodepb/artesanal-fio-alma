@@ -12,8 +12,8 @@ service firebase.storage {
     }
 
     match /{allPaths=**} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read: if !allPaths.matches('chat-images/.*') || isAuthenticated();
+      allow write: if !allPaths.matches('chat-images/.*') && isAdmin();
     }
 
     match /chat-images/{allPaths=**} {

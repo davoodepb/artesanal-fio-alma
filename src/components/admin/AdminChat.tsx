@@ -24,6 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import { processImageForUpload } from '@/lib/imageUtils';
+import { parseFirebaseUploadError, UploadDiagnostic } from '@/lib/firebaseUploadDiagnostics';
 
 const IMAGE_PREFIX = '[image:';
 const IMAGE_SUFFIX = ']';
@@ -90,8 +91,10 @@ export function AdminChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadDiagnostic, setUploadDiagnostic] = useState<UploadDiagnostic | null>(null);
   const [totalUnread, setTotalUnread] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const selectedConvRef = useRef<Conversation | null>(null);
@@ -174,6 +177,7 @@ export function AdminChat() {
 
   const fetchConversations = async () => {
     try {
+      setLoadError(null);
       const { data: convData, error } = await supabase
         .from('chat_conversations')
         .select('*')
@@ -222,6 +226,8 @@ export function AdminChat() {
       setTotalUnread(conversationsWithDetails.reduce((sum, conv) => sum + (conv.unread_count || 0), 0));
     } catch (error) {
       console.error('Error fetching conversations:', error);
+      setLoadError('Falha ao carregar conversas. Verifique permissões ou ligação.');
+      toast.error('Erro ao carregar chat. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -352,12 +358,32 @@ export function AdminChat() {
         .update({ updated_at: new Date().toISOString() })
         .eq('id', selectedConversation.id);
 
+      setUploadDiagnostic(null);
       toast.success('Imagem enviada!');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error uploading image:', error);
-      toast.error(error.message || 'Erro ao enviar imagem');
+      const details = parseFirebaseUploadError(error);
+      setUploadDiagnostic(details);
+      toast.error(details.summary);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const copyUploadDiagnostic = async () => {
+    if (!uploadDiagnostic) return;
+    const report = [
+      `Codigo: ${uploadDiagnostic.code}`,
+      `Resumo: ${uploadDiagnostic.summary}`,
+      `Dica: ${uploadDiagnostic.hint}`,
+      `Tecnico: ${uploadDiagnostic.technical}`,
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(report);
+      toast.success('Diagnostico copiado para a area de transferencia.');
+    } catch {
+      toast.error('Nao foi possivel copiar o diagnostico.');
     }
   };
 
@@ -480,7 +506,14 @@ export function AdminChat() {
             <ScrollArea className="h-[500px]">
               {conversations.length === 0 ? (
                 <div className="p-4 text-center text-muted-foreground">
-                  Nenhuma conversa ainda
+                  {loadError ? (
+                    <div className="space-y-2">
+                      <p className="text-destructive text-sm">{loadError}</p>
+                      <Button size="sm" variant="outline" onClick={fetchConversations}>Tentar novamente</Button>
+                    </div>
+                  ) : (
+                    'Nenhuma conversa ainda'
+                  )}
                 </div>
               ) : (
                 conversations.map((conv) => (
@@ -597,6 +630,22 @@ export function AdminChat() {
                 </div>
               </CardHeader>
               <CardContent className="flex-1 p-0 flex flex-col">
+                {uploadDiagnostic ? (
+                  <div className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-amber-900">Modo diagnostico de upload</p>
+                        <p className="text-xs text-amber-800">{uploadDiagnostic.summary}</p>
+                      </div>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={copyUploadDiagnostic}>
+                        Copiar erro
+                      </Button>
+                    </div>
+                    <p className="text-xs text-amber-900"><strong>Codigo:</strong> {uploadDiagnostic.code}</p>
+                    <p className="text-xs text-amber-900"><strong>Dica:</strong> {uploadDiagnostic.hint}</p>
+                    <p className="text-xs text-amber-900 break-all"><strong>Tecnico:</strong> {uploadDiagnostic.technical}</p>
+                  </div>
+                ) : null}
                 <ScrollArea className="flex-1 p-4">
                   <div className="space-y-4">
                     {messages.map((msg) => (

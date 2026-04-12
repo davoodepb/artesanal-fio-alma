@@ -236,5 +236,12 @@ service cloud.firestore {
     match /chats/{chatId} {
       allow read, write: if isAuthenticated();
     }
+
+    // Compatibility collection for simpler chat implementations.
+    match /chatMessages/{id} {
+      allow read, create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() &&
+        (isAdmin() || resource.data.userId == request.auth.uid || resource.data.user_id == request.auth.uid);
+    }
   }
 }

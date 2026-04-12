@@ -81,6 +81,7 @@ const paymentIcons: Record<string, React.ReactNode> = {
 export function AdminOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [orderItems, setOrderItems] = useState<Record<string, OrderItem[]>>({});
   const [customerInfo, setCustomerInfo] = useState<Record<string, CustomerInfo>>({});
@@ -92,12 +93,23 @@ export function AdminOrders() {
 
   const fetchOrders = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (!error && data) setOrders(data as Order[]);
-    setIsLoading(false);
+    setLoadError(null);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setOrders((data || []) as Order[]);
+    } catch (error: any) {
+      console.error('Error fetching orders:', error);
+      setLoadError(error?.message || 'Falha ao carregar pedidos.');
+      toast.error('Erro ao carregar pedidos. Verifique a ligação e permissões.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => { fetchOrders(); }, []);
@@ -430,7 +442,14 @@ export function AdminOrders() {
         </Select>
       </div>
 
-      {filteredOrders.length === 0 ? (
+      {loadError ? (
+        <Card>
+          <CardContent className="p-8 text-center space-y-3">
+            <p className="text-destructive text-sm">{loadError}</p>
+            <Button variant="outline" onClick={fetchOrders}>Tentar novamente</Button>
+          </CardContent>
+        </Card>
+      ) : filteredOrders.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
             Nenhum pedido encontrado.

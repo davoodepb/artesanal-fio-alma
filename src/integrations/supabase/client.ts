@@ -8,8 +8,10 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
+import { getStorage, ref as storageRef, uploadBytesResumable } from 'firebase/storage';
 import { firestore, firebaseApp, firebaseAuth, firebaseStorageBucket } from '@/integrations/firebase/client';
+
+const STORAGE_UPLOAD_TIMEOUT_MS = 120_000;
 
 type Filter =
   | { op: 'eq'; column: string; value: any }
@@ -219,6 +221,34 @@ function buildPublicUrl(path: string) {
   return `https://firebasestorage.googleapis.com/v0/b/${firebaseStorageBucket}/o/${fullPath}?alt=media`;
 }
 
+async function uploadResumableWithTimeout(storage: ReturnType<typeof getStorage>, path: string, file: File, contentType?: string) {
+  return new Promise<void>((resolve, reject) => {
+    const task = uploadBytesResumable(
+      storageRef(storage, path),
+      file,
+      { contentType: contentType || file.type || 'application/octet-stream' }
+    );
+
+    const timeout = globalThis.setTimeout(() => {
+      task.cancel();
+      reject(new Error('Upload demorou demasiado tempo. Verifique Firebase Storage.'));
+    }, STORAGE_UPLOAD_TIMEOUT_MS);
+
+    task.on(
+      'state_changed',
+      undefined,
+      (error) => {
+        globalThis.clearTimeout(timeout);
+        reject(error);
+      },
+      () => {
+        globalThis.clearTimeout(timeout);
+        resolve();
+      }
+    );
+  });
+}
+
 export const supabase: any = {
   from: (table: string) => new FirestoreSupabaseQuery(table),
   rpc: async (name: string, params: any = {}) => {
@@ -253,11 +283,15 @@ export const supabase: any = {
   },
   storage: {
     from: (bucket: string) => ({
-      upload: async (path: string, file: File) => {
+      upload: async (
+        path: string,
+        file: File,
+        options?: { cacheControl?: string; upsert?: boolean; contentType?: string }
+      ) => {
         try {
           const storage = getStorage(firebaseApp);
           const full = `${bucket}/${path}`;
-          await uploadBytes(storageRef(storage, full), file);
+          await uploadResumableWithTimeout(storage, full, file, options?.contentType);
           return { data: { path: full }, error: null };
         } catch (error: any) {
           return { data: null, error };

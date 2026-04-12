@@ -3,11 +3,42 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { Upload, X, Loader2, Image as ImageIcon, AlertTriangle, Copy } from 'lucide-react';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { firebaseAuth, firebaseStorage } from '@/integrations/firebase/client';
 import { cn } from '@/lib/utils';
 import { processImageForUpload } from '@/lib/imageUtils';
+import { parseFirebaseUploadError, UploadDiagnostic } from '@/lib/firebaseUploadDiagnostics';
+
+const UPLOAD_TIMEOUT_MS = 90_000;
+
+function uploadResumableWithTimeout(path: string, file: File) {
+  return new Promise<void>((resolve, reject) => {
+    const task = uploadBytesResumable(
+      ref(firebaseStorage, path),
+      file,
+      { contentType: file.type || 'application/octet-stream' }
+    );
+
+    const timeout = window.setTimeout(() => {
+      task.cancel();
+      reject(new Error('Upload demorou demasiado tempo. Verifique Firebase Storage.'));
+    }, UPLOAD_TIMEOUT_MS);
+
+    task.on(
+      'state_changed',
+      undefined,
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+      () => {
+        window.clearTimeout(timeout);
+        resolve();
+      }
+    );
+  });
+}
 
 interface ImageUploadProps {
   value: string;
@@ -30,6 +61,7 @@ export function ImageUpload({
 }: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [imageSource, setImageSource] = useState<'upload' | 'url'>(value ? 'url' : 'upload');
+  const [diagnostic, setDiagnostic] = useState<UploadDiagnostic | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -44,15 +76,7 @@ export function ImageUpload({
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
     const storagePath = `${bucket}/${fileName}`;
 
-    // Prevent endless spinner when storage rules/bucket are misconfigured.
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Upload demorou demasiado tempo. Verifique Firebase Storage.')), 20000);
-    });
-
-    await Promise.race([
-      uploadBytes(ref(firebaseStorage, storagePath), optimizedFile, { contentType: optimizedFile.type }),
-      timeoutPromise,
-    ]);
+    await uploadResumableWithTimeout(storagePath, optimizedFile);
 
     return getDownloadURL(ref(firebaseStorage, storagePath));
   };
@@ -84,11 +108,13 @@ export function ImageUpload({
       const publicUrl = await uploadToFirebase(file);
       onChange(publicUrl);
       setImageSource('upload');
+      setDiagnostic(null);
       toast.success('Imagem carregada com sucesso!');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Upload error:', error);
-      const msg = error?.message || '';
-      toast.error('Erro ao carregar imagem: ' + (msg || 'Tente novamente ou use a opção URL'));
+      const details = parseFirebaseUploadError(error);
+      setDiagnostic(details);
+      toast.error(details.summary);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -99,6 +125,24 @@ export function ImageUpload({
 
   const handleRemove = () => {
     onChange('');
+    setDiagnostic(null);
+  };
+
+  const copyDiagnostic = async () => {
+    if (!diagnostic) return;
+    const report = [
+      `Codigo: ${diagnostic.code}`,
+      `Resumo: ${diagnostic.summary}`,
+      `Dica: ${diagnostic.hint}`,
+      `Tecnico: ${diagnostic.technical}`,
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(report);
+      toast.success('Diagnostico copiado para a area de transferencia.');
+    } catch {
+      toast.error('Nao foi possivel copiar o diagnostico.');
+    }
   };
 
   return (
@@ -201,6 +245,27 @@ export function ImageUpload({
         />
       </div>
 
+      {diagnostic ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-900">Modo diagnostico de upload</p>
+                <p className="text-xs text-amber-800">{diagnostic.summary}</p>
+              </div>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={copyDiagnostic} className="h-7 text-xs">
+              <Copy className="h-3.5 w-3.5 mr-1" />
+              Copiar erro
+            </Button>
+          </div>
+          <p className="text-xs text-amber-900"><strong>Codigo:</strong> {diagnostic.code}</p>
+          <p className="text-xs text-amber-900"><strong>Dica:</strong> {diagnostic.hint}</p>
+          <p className="text-xs text-amber-900 break-all"><strong>Tecnico:</strong> {diagnostic.technical}</p>
+        </div>
+      ) : null}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -232,6 +297,7 @@ export function MultiImageUpload({
   const [isUploading, setIsUploading] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
   const [imageSource, setImageSource] = useState<'upload' | 'url'>('upload');
+  const [diagnostic, setDiagnostic] = useState<UploadDiagnostic | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadToFirebase = async (file: File) => {
@@ -239,7 +305,7 @@ export function MultiImageUpload({
     const fileExt = optimizedFile.name.split('.').pop() || 'webp';
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
     const storagePath = `${bucket}/${fileName}`;
-    await uploadBytes(ref(firebaseStorage, storagePath), optimizedFile, { contentType: optimizedFile.type });
+    await uploadResumableWithTimeout(storagePath, optimizedFile);
     return getDownloadURL(ref(firebaseStorage, storagePath));
   };
 
@@ -270,10 +336,13 @@ export function MultiImageUpload({
       }
 
       onChange([...values, ...newUrls]);
+      setDiagnostic(null);
       toast.success(`${newUrls.length} imagem(ns) carregada(s)!`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Upload error:', error);
-      toast.error('Erro ao carregar imagens');
+      const details = parseFirebaseUploadError(error);
+      setDiagnostic(details);
+      toast.error(details.summary);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -282,6 +351,23 @@ export function MultiImageUpload({
 
   const handleRemove = (index: number) => {
     onChange(values.filter((_, i) => i !== index));
+  };
+
+  const copyDiagnostic = async () => {
+    if (!diagnostic) return;
+    const report = [
+      `Codigo: ${diagnostic.code}`,
+      `Resumo: ${diagnostic.summary}`,
+      `Dica: ${diagnostic.hint}`,
+      `Tecnico: ${diagnostic.technical}`,
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(report);
+      toast.success('Diagnostico copiado para a area de transferencia.');
+    } catch {
+      toast.error('Nao foi possivel copiar o diagnostico.');
+    }
   };
 
   const handleAddUrl = () => {
@@ -372,6 +458,27 @@ export function MultiImageUpload({
           </Button>
         </div>
       )}
+
+      {diagnostic ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-900">Modo diagnostico de upload</p>
+                <p className="text-xs text-amber-800">{diagnostic.summary}</p>
+              </div>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={copyDiagnostic} className="h-7 text-xs">
+              <Copy className="h-3.5 w-3.5 mr-1" />
+              Copiar erro
+            </Button>
+          </div>
+          <p className="text-xs text-amber-900"><strong>Codigo:</strong> {diagnostic.code}</p>
+          <p className="text-xs text-amber-900"><strong>Dica:</strong> {diagnostic.hint}</p>
+          <p className="text-xs text-amber-900 break-all"><strong>Tecnico:</strong> {diagnostic.technical}</p>
+        </div>
+      ) : null}
 
       <input
         ref={fileInputRef}
