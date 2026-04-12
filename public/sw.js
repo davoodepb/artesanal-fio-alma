@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fio-alma-v4';
+const CACHE_NAME = 'fio-alma-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
