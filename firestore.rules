@@ -89,6 +89,16 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /pedidos/{id} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || resource.data.user_id == request.auth.uid || isAdmin());
+
+      allow create: if isAuthenticated() &&
+        (request.resource.data.userId == request.auth.uid || request.resource.data.user_id == request.auth.uid);
+
+      allow update, delete: if isAdmin();
+    }
+
     match /order_items/{id} {
       allow read: if isAuthenticated() &&
         (isAdmin() || isOrderOwner(resource.data.order_id));
@@ -206,6 +216,15 @@ service cloud.firestore {
         (resource.data.customer_id == request.auth.uid || resource.data.customerId == request.auth.uid || isAdmin());
     }
 
+    match /chatConversations/{id} {
+      allow read: if isAuthenticated() &&
+        (resource.data.customer_id == request.auth.uid || resource.data.customerId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() &&
+        (request.resource.data.customer_id == request.auth.uid || request.resource.data.customerId == request.auth.uid || isAdmin());
+      allow update, delete: if isAuthenticated() &&
+        (resource.data.customer_id == request.auth.uid || resource.data.customerId == request.auth.uid || isAdmin());
+    }
+
     match /conversas_chat/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.customer_id == request.auth.uid || resource.data.customerId == request.auth.uid || isAdmin());
@@ -222,6 +241,15 @@ service cloud.firestore {
         canAccessConversation(request.resource.data.conversation_id);
       allow update, delete: if isAuthenticated() &&
         (isAdmin() || resource.data.sender_id == request.auth.uid);
+    }
+
+    match /chatMessages/{id} {
+      allow read: if isAuthenticated() &&
+        (isAdmin() || resource.data.userId == request.auth.uid || resource.data.user_id == request.auth.uid ||
+         canAccessConversation(resource.data.conversation_id));
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() &&
+        (isAdmin() || resource.data.userId == request.auth.uid || resource.data.user_id == request.auth.uid || resource.data.sender_id == request.auth.uid);
     }
 
     match /mensagens_chat/{id} {

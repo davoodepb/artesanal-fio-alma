@@ -83,6 +83,7 @@ export function CustomerChat() {
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [chatInitError, setChatInitError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaWrapperRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -311,12 +312,24 @@ export function CustomerChat() {
     setIsLoading(true);
     try {
       // Load all user conversations to preserve full history.
-      const { data: existingConvs, error: fetchError } = await supabase
-        .from('chat_conversations')
-        .select('id, status')
-        .eq('customer_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(1000);
+      const [bySnake, byCamel] = await Promise.all([
+        supabase
+          .from('chat_conversations')
+          .select('id, status')
+          .eq('customer_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(1000),
+        supabase
+          .from('chat_conversations')
+          .select('id, status')
+          .eq('customerId', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(1000),
+      ]);
+
+      const fetchError = bySnake.error || byCamel.error;
+      const existingConvs = [...(bySnake.data || []), ...(byCamel.data || [])]
+        .filter((conv, index, arr) => arr.findIndex((c) => c.id === conv.id) === index);
 
       if (fetchError) throw fetchError;
 
@@ -324,15 +337,26 @@ export function CustomerChat() {
       let allIds = (existingConvs || []).map((c) => c.id);
 
       if (!convId) {
-        // Create new conversation
-        const { data: newConv, error: createError } = await supabase
+        // Create new conversation (try both field conventions)
+        let createResult = await supabase
           .from('chat_conversations')
           .insert({ customer_id: user.id, status: 'active' })
           .select('id')
           .single();
 
-        if (createError) throw createError;
-        convId = newConv.id;
+        if (createResult.error) {
+          createResult = await supabase
+            .from('chat_conversations')
+            .insert({ customerId: user.id, status: 'active' })
+            .select('id')
+            .single();
+        }
+
+        if (createResult.error || !createResult.data?.id) {
+          throw createResult.error || new Error('Não foi possível criar conversa.');
+        }
+
+        convId = createResult.data.id;
         allIds = [convId];
       } else if (existingConvs?.[0]?.status !== 'active' && existingConvs?.[0]?.status !== 'open') {
         // Reopen latest conversation so customer keeps full history in one thread.
@@ -344,10 +368,12 @@ export function CustomerChat() {
 
       setConversationId(convId);
       setConversationIds(allIds);
+      setChatInitError(null);
       await fetchMessages(allIds);
       return { activeConversationId: convId, allConversationIds: allIds };
     } catch (error: any) {
       console.error('Error fetching/creating conversation:', error);
+      setChatInitError(error?.message || 'Não foi possível iniciar a conversa.');
       toast.error('Erro ao iniciar chat: ' + (error?.message || 'sem detalhes'));
       return null;
     } finally {
@@ -393,7 +419,7 @@ export function CustomerChat() {
     try {
       const activeConversationId = await ensureConversationReady();
       if (!activeConversationId) {
-        throw new Error('Não foi possível iniciar a conversa.');
+        throw new Error(chatInitError || 'Não foi possível iniciar a conversa.');
       }
 
       const { data: insertedMessage, error } = await supabase
@@ -449,7 +475,7 @@ export function CustomerChat() {
     try {
       const activeConversationId = await ensureConversationReady();
       if (!activeConversationId) {
-        throw new Error('Não foi possível iniciar a conversa.');
+        throw new Error(chatInitError || 'Não foi possível iniciar a conversa.');
       }
 
       const optimized = await processImageForUpload(file);
