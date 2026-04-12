@@ -14,8 +14,6 @@ import {
 import { getStorage, ref as storageRef, uploadBytesResumable } from 'firebase/storage';
 import { firestore, firebaseApp, firebaseAuth, firebaseStorageBucket } from '@/integrations/firebase/client';
 
-const STORAGE_UPLOAD_TIMEOUT_MS = 120_000;
-
 type Filter =
   | { op: 'eq'; column: string; value: any }
   | { op: 'lte'; column: string; value: any }
@@ -93,11 +91,12 @@ function isFirestoreIndexError(error: unknown) {
   return code.includes('failed-precondition') || msg.includes('index');
 }
 
-type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE';
+type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 
 type RealtimeListener = {
   event: RealtimeEventType;
   table: string;
+  filter?: string;
   callback: (payload: { new: any; old: any }) => void;
 };
 
@@ -107,7 +106,7 @@ type FirestoreSupabaseChannel = {
   unsubscribers: Array<() => void>;
   on: (
     eventType: 'postgres_changes',
-    filter: { event: RealtimeEventType; schema?: string; table: string },
+    filter: { event: RealtimeEventType; schema?: string; table: string; filter?: string },
     callback: (payload: { new: any; old: any }) => void
   ) => FirestoreSupabaseChannel;
   subscribe: () => FirestoreSupabaseChannel;
@@ -318,7 +317,7 @@ function buildPublicUrl(path: string) {
   return `https://firebasestorage.googleapis.com/v0/b/${firebaseStorageBucket}/o/${fullPath}?alt=media`;
 }
 
-async function uploadResumableWithTimeout(storage: ReturnType<typeof getStorage>, path: string, file: File, contentType?: string) {
+async function uploadResumable(storage: ReturnType<typeof getStorage>, path: string, file: File, contentType?: string) {
   return new Promise<void>((resolve, reject) => {
     const task = uploadBytesResumable(
       storageRef(storage, path),
@@ -326,24 +325,34 @@ async function uploadResumableWithTimeout(storage: ReturnType<typeof getStorage>
       { contentType: contentType || file.type || 'application/octet-stream' }
     );
 
-    const timeout = globalThis.setTimeout(() => {
-      task.cancel();
-      reject(new Error('Upload demorou demasiado tempo. Verifique Firebase Storage.'));
-    }, STORAGE_UPLOAD_TIMEOUT_MS);
-
     task.on(
       'state_changed',
       undefined,
       (error) => {
-        globalThis.clearTimeout(timeout);
         reject(error);
       },
       () => {
-        globalThis.clearTimeout(timeout);
         resolve();
       }
     );
   });
+}
+
+function parseRealtimeFilter(filterExpression?: string) {
+  if (!filterExpression) return null;
+  const match = filterExpression.match(/^([a-zA-Z0-9_]+)=eq\.(.+)$/);
+  if (!match) return null;
+  const column = match[1];
+  const rawValue = decodeURIComponent(match[2]);
+
+  if (rawValue === 'true') return { column, value: true };
+  if (rawValue === 'false') return { column, value: false };
+  const asNumber = Number(rawValue);
+  if (!Number.isNaN(asNumber) && String(asNumber) === rawValue) {
+    return { column, value: asNumber };
+  }
+
+  return { column, value: rawValue };
 }
 
 async function ensureAdminForModeration() {
@@ -374,7 +383,7 @@ function createRealtimeChannel(name: string): FirestoreSupabaseChannel {
     unsubscribers: [],
     on(eventType, filter, callback) {
       if (eventType !== 'postgres_changes') return channel;
-      channel.listeners.push({ event: filter.event, table: filter.table, callback });
+      channel.listeners.push({ event: filter.event, table: filter.table, filter: filter.filter, callback });
       return channel;
     },
     subscribe() {
@@ -387,9 +396,13 @@ function createRealtimeChannel(name: string): FirestoreSupabaseChannel {
         for (const tableName of tableNames) {
           const docsState = new Map<string, any>();
           let initialized = false;
+          const parsedFilter = parseRealtimeFilter(listener.filter);
+          const source = parsedFilter
+            ? firestoreQuery(collection(firestore, tableName), where(parsedFilter.column, '==', parsedFilter.value))
+            : collection(firestore, tableName);
 
           const unsubscribe = onSnapshot(
-            collection(firestore, tableName),
+            source as any,
             (snapshot) => {
               for (const change of snapshot.docChanges()) {
                 const id = change.doc.id;
@@ -399,7 +412,7 @@ function createRealtimeChannel(name: string): FirestoreSupabaseChannel {
                 if (change.type === 'added') {
                   docsState.set(id, incoming);
                   if (!initialized) continue;
-                  if (listener.event === 'INSERT') {
+                  if (listener.event === 'INSERT' || listener.event === '*') {
                     listener.callback({ new: incoming, old: null });
                   }
                   continue;
@@ -407,7 +420,7 @@ function createRealtimeChannel(name: string): FirestoreSupabaseChannel {
 
                 if (change.type === 'modified') {
                   docsState.set(id, incoming);
-                  if (listener.event === 'UPDATE') {
+                  if (listener.event === 'UPDATE' || listener.event === '*') {
                     listener.callback({ new: incoming, old: previous });
                   }
                   continue;
@@ -415,7 +428,7 @@ function createRealtimeChannel(name: string): FirestoreSupabaseChannel {
 
                 if (change.type === 'removed') {
                   docsState.delete(id);
-                  if (listener.event === 'DELETE') {
+                  if (listener.event === 'DELETE' || listener.event === '*') {
                     listener.callback({ new: null, old: previous });
                   }
                 }
@@ -571,7 +584,7 @@ export const supabase: any = {
         try {
           const storage = getStorage(firebaseApp);
           const full = `${bucket}/${path}`;
-          await uploadResumableWithTimeout(storage, full, file, options?.contentType);
+          await uploadResumable(storage, full, file, options?.contentType);
           return { data: { path: full }, error: null };
         } catch (error: any) {
           return { data: null, error };

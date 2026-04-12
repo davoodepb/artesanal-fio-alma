@@ -42,6 +42,15 @@ export function PWAInstallPrompt() {
   };
 
   const handleInstall = async () => {
+    if (!isInstallable) {
+      if (isIOS) {
+        setShowIOSPrompt(true);
+      } else {
+        setShowBanner(true);
+      }
+      return;
+    }
+
     const success = await installApp();
     if (success) {
       setShowBanner(false);
@@ -51,7 +60,7 @@ export function PWAInstallPrompt() {
 
   if (isInstalled || isInStandaloneMode) return null;
 
-  const showFloatingInstallIcon = isInstallable;
+  const showFloatingInstallIcon = !isInstalled && !isInStandaloneMode;
 
   // iOS instruction prompt
   if (showIOSPrompt) {

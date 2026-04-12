@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import { processImageForUpload } from '@/lib/imageUtils';
 import { parseFirebaseUploadError, UploadDiagnostic } from '@/lib/firebaseUploadDiagnostics';
 
-const UPLOAD_TIMEOUT_MS = 90_000;
 const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 
 function uploadResumableWithTimeout(path: string, file: File) {
@@ -21,20 +20,13 @@ function uploadResumableWithTimeout(path: string, file: File) {
       { contentType: file.type || 'application/octet-stream' }
     );
 
-    const timeout = window.setTimeout(() => {
-      task.cancel();
-      reject(new Error('Upload demorou demasiado tempo. Verifique Firebase Storage.'));
-    }, UPLOAD_TIMEOUT_MS);
-
     task.on(
       'state_changed',
       undefined,
       (error) => {
-        window.clearTimeout(timeout);
         reject(error);
       },
       () => {
-        window.clearTimeout(timeout);
         resolve();
       }
     );
