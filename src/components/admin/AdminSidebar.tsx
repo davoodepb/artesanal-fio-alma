@@ -18,7 +18,6 @@ import {
   Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface AdminSidebarProps {
   activeTab: string;
@@ -62,7 +61,7 @@ export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badg
       </div>
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 py-4">
+      <div className="flex-1 py-4 overflow-y-auto">
         <nav className="space-y-1 px-3">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -71,6 +70,7 @@ export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badg
             return (
               <button
                 key={item.id}
+                type="button"
                 onClick={() => onTabChange(item.id)}
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200",
@@ -95,7 +95,7 @@ export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badg
             );
           })}
         </nav>
-      </ScrollArea>
+      </div>
 
       {/* Logout */}
       <div className="p-4 border-t border-border">
