@@ -23,10 +23,9 @@ async function getOrCreateConversation(userId: string): Promise<string | null> {
   try {
     const { data: existing } = await supabase
       .from('chat_conversations')
-      .select('id')
+      .select('id, updated_at, created_at')
       .eq('customer_id', userId)
       .in('status', ['open', 'active'])
-      .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 

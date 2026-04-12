@@ -180,8 +180,7 @@ export function AdminChat() {
       setLoadError(null);
       const { data: convData, error } = await supabase
         .from('chat_conversations')
-        .select('*')
-        .order('updated_at', { ascending: false });
+        .select('*');
 
       if (error) throw error;
 
@@ -238,8 +237,14 @@ export function AdminChat() {
         })
       );
 
-      setConversations(conversationsWithDetails);
-      setTotalUnread(conversationsWithDetails.reduce((sum, conv) => sum + (conv.unread_count || 0), 0));
+      const sortedConversations = [...conversationsWithDetails].sort((a, b) => {
+        const aTime = new Date((a as any).updated_at || (a as any).created_at || 0).getTime();
+        const bTime = new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
+        return bTime - aTime;
+      });
+
+      setConversations(sortedConversations);
+      setTotalUnread(sortedConversations.reduce((sum, conv) => sum + (conv.unread_count || 0), 0));
     } catch (error) {
       console.error('Error fetching conversations:', error);
       setLoadError('Falha ao carregar conversas. Verifique permissões ou ligação.');

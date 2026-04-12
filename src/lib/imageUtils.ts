@@ -7,6 +7,7 @@
 const MAX_DIMENSION = 1200; // Max width or height in pixels
 const THUMB_DIMENSION = 400; // Thumbnail size
 const QUALITY = 0.85; // JPEG/WEBP quality
+const IMAGE_PROCESS_TIMEOUT_MS = 15000;
 
 /**
  * Resize an image file while maintaining aspect ratio.
@@ -120,7 +121,12 @@ export function createThumbnail(
  * Process a file for upload: resize if needed.
  */
 export async function processImageForUpload(file: File): Promise<File> {
-  return resizeImage(file, MAX_DIMENSION, QUALITY);
+  return Promise.race<File>([
+    resizeImage(file, MAX_DIMENSION, QUALITY),
+    new Promise<File>((resolve) => {
+      window.setTimeout(() => resolve(file), IMAGE_PROCESS_TIMEOUT_MS);
+    }),
+  ]);
 }
 
 /**

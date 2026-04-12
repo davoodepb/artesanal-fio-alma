@@ -110,7 +110,6 @@ export function CustomerChat() {
         .from('chat_conversations')
         .select('id')
         .eq('customer_id', user.id)
-        .order('updated_at', { ascending: false })
         .limit(200);
 
       if (!convs || convs.length === 0) return;
@@ -151,7 +150,6 @@ export function CustomerChat() {
             .from('chat_conversations')
             .select('id')
             .eq('customer_id', user.id)
-            .order('updated_at', { ascending: false })
             .limit(200);
 
           const ids = (convs || []).map((c) => c.id);
@@ -315,21 +313,24 @@ export function CustomerChat() {
       const [bySnake, byCamel] = await Promise.all([
         supabase
           .from('chat_conversations')
-          .select('id, status')
+          .select('id, status, updated_at, created_at')
           .eq('customer_id', user.id)
-          .order('updated_at', { ascending: false })
           .limit(1000),
         supabase
           .from('chat_conversations')
-          .select('id, status')
+          .select('id, status, updated_at, created_at')
           .eq('customerId', user.id)
-          .order('updated_at', { ascending: false })
           .limit(1000),
       ]);
 
       const fetchError = bySnake.error || byCamel.error;
       const existingConvs = [...(bySnake.data || []), ...(byCamel.data || [])]
-        .filter((conv, index, arr) => arr.findIndex((c) => c.id === conv.id) === index);
+        .filter((conv, index, arr) => arr.findIndex((c) => c.id === conv.id) === index)
+        .sort((a, b) => {
+          const aTime = new Date((a as any).updated_at || (a as any).created_at || 0).getTime();
+          const bTime = new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
+          return bTime - aTime;
+        });
 
       if (fetchError) throw fetchError;
 
