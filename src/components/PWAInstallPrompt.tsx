@@ -94,15 +94,16 @@ export function PWAInstallPrompt() {
     if (!showFloatingInstallIcon) return null;
 
     return (
-      <div className="fixed bottom-4 right-4 z-50">
+      <div className="fixed bottom-24 right-4 z-[80]">
         <Button
           onClick={handleInstall}
-          size="icon"
-          className="h-12 w-12 rounded-full shadow-xl"
+          size="sm"
+          className="h-10 rounded-full shadow-xl gap-2 px-4"
           aria-label="Instalar app"
           title="Instalar app"
         >
-          <Download className="h-5 w-5" />
+          <Download className="h-4 w-4" />
+          Instalar app
         </Button>
       </div>
     );
