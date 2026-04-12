@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Instagram, Youtube, Facebook, Mail, Phone, MapPin, Heart, Download, Smartphone, Loader2 } from 'lucide-react';
+import { Instagram, Youtube, Facebook, Mail, Phone, MapPin, Heart, Download, Smartphone, Loader2, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
@@ -17,6 +17,7 @@ export function Footer() {
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
+    whatsappUrl: '',
   });
   const [contactInfo, setContactInfo] = useState({
     email: 'ola@fioealma.pt',
@@ -41,6 +42,7 @@ export function Footer() {
             instagramUrl: typeof value.instagram_url === 'string' ? value.instagram_url : '',
             youtubeUrl: typeof value.youtube_url === 'string' ? value.youtube_url : '',
             facebookUrl: typeof value.facebook_url === 'string' ? value.facebook_url : '',
+            whatsappUrl: typeof value.whatsapp_url === 'string' ? value.whatsapp_url : '',
           });
         }
       } catch (error) {
@@ -158,6 +160,13 @@ export function Footer() {
                 <Button asChild variant="ghost" size="icon" className="hover:text-primary hover:bg-primary/10 rounded-full">
                   <a href={socialLinks.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
                     <Facebook className="h-5 w-5" />
+                  </a>
+                </Button>
+              ) : null}
+              {socialLinks.whatsappUrl ? (
+                <Button asChild variant="ghost" size="icon" className="hover:text-primary hover:bg-primary/10 rounded-full">
+                  <a href={socialLinks.whatsappUrl} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
+                    <MessageCircle className="h-5 w-5" />
                   </a>
                 </Button>
               ) : null}

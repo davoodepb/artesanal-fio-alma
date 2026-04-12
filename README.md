@@ -92,3 +92,76 @@ Set these variables in Vercel Project Settings:
 4. In Search Console, submit `https://YOUR_DOMAIN/sitemap.xml`.
 5. Use URL Inspection for key pages (`/`, `/products`, category and product URLs).
 6. Monitor Indexing and Page Experience reports for crawl/indexing errors.
+
+## Migracao Supabase -> Firebase (tabelas sem auth antigo)
+
+Este repositorio ja tem base para:
+
+1. Login/Admin pelo Firebase Auth.
+2. Importar CSV das tabelas para Firestore.
+3. Definir claim de admin no Firebase.
+
+### 1) Configurar variaveis de ambiente
+
+- Copia `.env.example` para `.env`.
+- Preenche todos os campos `VITE_FIREBASE_*`.
+- Define `VITE_FIREBASE_ADMIN_UID=5efzvBMxHXOBkQMU8VcVLXBX8QS2`.
+
+### 2) Exportar tabelas no Supabase
+
+- Supabase -> Table Editor -> Export CSV para cada tabela.
+- Coloca os ficheiros em `migration-csv/` com nome da colecao desejada:
+
+Exemplo:
+
+- `migration-csv/produtos.csv`
+- `migration-csv/categorias.csv`
+- `migration-csv/encomendas.csv`
+
+### 3) Remover dados sensiveis antes da importacao
+
+- Remove colunas como email/password/senha se nao quiseres migrar auth.
+- O script tambem remove por defeito: `email`, `password`, `senha`, `hashed_password`, `encrypted_password`.
+
+### 4) Importar para Firestore
+
+Precisas de um ficheiro de service account do Firebase (JSON).
+
+Comando:
+
+```sh
+npm run migrate:firestore -- --credentials=./firebase-service-account.json --csvDir=./migration-csv
+```
+
+Teste sem gravar dados:
+
+```sh
+npm run migrate:firestore -- --credentials=./firebase-service-account.json --csvDir=./migration-csv --dryRun
+```
+
+### 5) Definir admin no Firebase Auth
+
+```sh
+npm run set:firebase-admin-claim -- --credentials=./firebase-service-account.json --uid=5efzvBMxHXOBkQMU8VcVLXBX8QS2
+```
+
+Depois pede ao admin para terminar sessao e voltar a entrar para renovar token com a claim.
+
+### 6) Publicar regras do Firestore
+
+As regras estao em `firestore.rules`.
+
+Publica com Firebase CLI:
+
+```sh
+firebase deploy --only firestore:rules
+```
+
+### 7) Remover Supabase por completo
+
+Quando confirmares que os dados e fluxos do app estao 100% em Firebase:
+
+1. Elimina chamadas restantes ao Supabase no frontend.
+2. Remove variaveis `VITE_SUPABASE_*`.
+3. Remove dependencia `@supabase/supabase-js`.
+4. So depois apaga o projeto no Supabase.

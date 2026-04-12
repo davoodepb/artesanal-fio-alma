@@ -218,6 +218,30 @@ export function CustomerChat() {
     };
   }, [conversationIds, user, isOpen]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const intervalId = window.setInterval(async () => {
+      if (conversationIds.length > 0) {
+        await fetchMessages(conversationIds);
+      }
+
+      if (!isOpen && conversationIds.length > 0) {
+        const { count } = await supabase
+          .from('chat_messages')
+          .select('id', { count: 'exact', head: true })
+          .in('conversation_id', conversationIds)
+          .in('sender_role', ['admin', 'system'])
+          .eq('is_read', false);
+        setUnreadCount(count || 0);
+      }
+    }, 4000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [user, conversationIds, isOpen]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };

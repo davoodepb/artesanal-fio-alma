@@ -262,8 +262,9 @@ const Checkout = () => {
 
     setLoading(true);
     try {
-      // Verify user is still authenticated
-      if (!user) {
+      // Verify session is still valid before proceeding
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
         toast.error('Sessão expirada. Por favor, faça login novamente.');
         navigate('/login?redirect=/checkout');
         setLoading(false);
@@ -288,6 +289,7 @@ const Checkout = () => {
       const invNumber = generateInvoiceNumber();
 
       const baseOrderPayload = {
+        userId: user.id,
         user_id: user.id,
         status: 'pending' as const,
         total: finalTotal,
@@ -315,6 +317,14 @@ const Checkout = () => {
         shipping_postal_code: postalCode,
         shipping_country: country,
         customer_nif: nif || null,
+        items: items.map(({ product, quantity }) => ({
+          productId: product.id,
+          product_id: product.id,
+          name: product.name,
+          price: Number(product.price),
+          quantity,
+          category: product.category?.name || null,
+        })),
       };
 
       let orderInsert = await supabase
@@ -347,6 +357,7 @@ const Checkout = () => {
         order_id: order.id,
         product_id: product.id,
         product_name: product.name,
+        category: product.category?.name || null,
         quantity,
         unit_price: product.price,
         subtotal: product.price * quantity,

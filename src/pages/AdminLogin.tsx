@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { firebaseAuth } from '@/integrations/firebase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,15 +12,15 @@ import { Eye, EyeOff, Loader2, Shield } from 'lucide-react';
 const AdminLogin = () => {
   const navigate = useNavigate();
   const { signIn, signOut, isAdmin, user, isLoading } = useAuth();
+  const ADMIN_UID = import.meta.env.VITE_FIREBASE_ADMIN_UID || '5efzvBMxHXOBkQMU8VcVLXBX8QS2';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
   const [ready, setReady] = useState(false);
 
-  // If arriving with an active Supabase session but no sessionStorage flag,
+  // If arriving with an active Firebase session but no sessionStorage flag,
   // sign out first so the admin MUST re-enter email & password every time
   useEffect(() => {
     if (isLoading) return;
@@ -35,22 +36,6 @@ const AdminLogin = () => {
     }
   }, [isLoading]);
 
-  // After form submission: wait for isAdmin to resolve, then redirect or show error
-  useEffect(() => {
-    if (!hasSubmitted || isLoading || !user) return;
-
-    if (isAdmin) {
-      sessionStorage.setItem('admin_authenticated', 'true');
-      toast.success('Bem-vindo(a), Admin!');
-      navigate('/admin');
-    } else if (isAdmin === false) {
-      // isAdmin resolved to false → not an admin
-      setIsSubmitting(false);
-      toast.error('Esta conta não tem permissões de administrador');
-      setHasSubmitted(false);
-    }
-  }, [user, isAdmin, isLoading, hasSubmitted, navigate]);
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -60,15 +45,48 @@ const AdminLogin = () => {
     }
 
     setIsSubmitting(true);
-    setHasSubmitted(true);
     const { error } = await signIn(email, password);
 
     if (error) {
       setIsSubmitting(false);
-      setHasSubmitted(false);
-      toast.error('Credenciais inválidas');
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('network-request-failed')) {
+        toast.error('Falha de rede com Firebase. Abra no Chrome/Edge externo e confirme internet, VPN/AdBlock e Firebase Auth ativo.');
+      } else
+      if (msg.includes('invalid-credential') || msg.includes('wrong-password') || msg.includes('user-not-found')) {
+        toast.error('Credenciais invalidas');
+      } else if (msg.includes('too-many-requests')) {
+        toast.error('Muitas tentativas. Aguarde e tente novamente.');
+      } else {
+        toast.error('Falha no login: ' + error.message);
+      }
+      return;
     }
-    // If no error, auth state will update and the useEffect above will handle redirect
+
+    try {
+      const currentUser = firebaseAuth.currentUser;
+      if (!currentUser) {
+        throw new Error('Sessão não iniciada corretamente.');
+      }
+
+      const tokenResult = await currentUser.getIdTokenResult(true);
+      const hasAdminAccess = tokenResult.claims.admin === true || currentUser.uid === ADMIN_UID;
+
+      if (!hasAdminAccess) {
+        await signOut();
+        toast.error('Esta conta não tem permissões de administrador');
+        setIsSubmitting(false);
+        return;
+      }
+
+      sessionStorage.setItem('admin_authenticated', 'true');
+      toast.success('Bem-vindo(a), Admin!');
+      navigate('/admin');
+    } catch (authCheckError: any) {
+      toast.error('Falha ao validar permissões de admin: ' + (authCheckError?.message || 'erro desconhecido'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Show loader while clearing old session

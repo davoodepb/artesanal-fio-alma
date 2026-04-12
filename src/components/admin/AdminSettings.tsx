@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Palette, Image as ImageIcon, Save, Instagram, Youtube, Facebook } from 'lucide-react';
+import { Moon, Sun, Palette, Image as ImageIcon, Save, Instagram, Youtube, Facebook, MessageCircle } from 'lucide-react';
 import { ImageUpload } from './ImageUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ export function AdminSettings() {
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
+    whatsappUrl: '',
   });
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export function AdminSettings() {
           instagramUrl: typeof value.instagram_url === 'string' ? value.instagram_url : '',
           youtubeUrl: typeof value.youtube_url === 'string' ? value.youtube_url : '',
           facebookUrl: typeof value.facebook_url === 'string' ? value.facebook_url : '',
+          whatsappUrl: typeof value.whatsapp_url === 'string' ? value.whatsapp_url : '',
         });
       }
     };
@@ -87,7 +89,7 @@ export function AdminSettings() {
   };
 
   const handleSaveSocialLinks = async () => {
-    const hasInvalidUrl = [socialLinks.instagramUrl, socialLinks.youtubeUrl, socialLinks.facebookUrl].some(
+    const hasInvalidUrl = [socialLinks.instagramUrl, socialLinks.youtubeUrl, socialLinks.facebookUrl, socialLinks.whatsappUrl].some(
       (url) => !isValidSocialUrl(url)
     );
 
@@ -102,6 +104,7 @@ export function AdminSettings() {
         instagram_url: socialLinks.instagramUrl.trim(),
         youtube_url: socialLinks.youtubeUrl.trim(),
         facebook_url: socialLinks.facebookUrl.trim(),
+        whatsapp_url: socialLinks.whatsappUrl.trim(),
       };
 
       const { data: existing } = await supabase
@@ -212,7 +215,7 @@ export function AdminSettings() {
         <Card>
           <CardHeader>
             <CardTitle>Redes Sociais</CardTitle>
-            <CardDescription>Atualize os links do Instagram, YouTube e Facebook do site.</CardDescription>
+            <CardDescription>Atualize os links do Instagram, YouTube, Facebook e WhatsApp do site.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -251,6 +254,19 @@ export function AdminSettings() {
                 placeholder="https://facebook.com/sua-pagina"
                 value={socialLinks.facebookUrl}
                 onChange={(e) => setSocialLinks((prev) => ({ ...prev, facebookUrl: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <MessageCircle className="h-4 w-4" />
+                WhatsApp URL
+              </Label>
+              <Input
+                type="url"
+                placeholder="https://wa.me/351900000000"
+                value={socialLinks.whatsappUrl}
+                onChange={(e) => setSocialLinks((prev) => ({ ...prev, whatsappUrl: e.target.value }))}
               />
             </div>
 

@@ -27,12 +27,21 @@ interface Order {
   notes: string | null;
   invoice_number: string | null;
   payment_method: string | null;
+  items?: Array<{
+    productId?: string;
+    product_id?: string;
+    name?: string;
+    price?: number;
+    quantity?: number;
+    category?: string | null;
+  }>;
   created_at: string;
 }
 
 interface OrderItem {
   id: string;
   product_name: string;
+  category?: string | null;
   quantity: number;
   unit_price: number;
   subtotal: number;
@@ -122,13 +131,29 @@ export function AdminOrders() {
     };
   }, []);
 
-  const fetchItems = async (orderId: string) => {
+  const fetchItems = async (orderId: string, order?: Order) => {
     if (orderItems[orderId]) return;
     const { data } = await supabase
       .from('order_items')
       .select('*')
       .eq('order_id', orderId);
-    if (data) setOrderItems(prev => ({ ...prev, [orderId]: data }));
+
+    if (data && data.length > 0) {
+      setOrderItems(prev => ({ ...prev, [orderId]: data as OrderItem[] }));
+      return;
+    }
+
+    if (order?.items?.length) {
+      const derived = order.items.map((item, index) => ({
+        id: `${orderId}-${index}`,
+        product_name: item.name || 'Produto',
+        category: item.category || null,
+        quantity: Number(item.quantity || 0),
+        unit_price: Number(item.price || 0),
+        subtotal: Number(item.price || 0) * Number(item.quantity || 0),
+      }));
+      setOrderItems(prev => ({ ...prev, [orderId]: derived }));
+    }
   };
 
   const fetchCustomerInfo = async (order: Order) => {
@@ -171,7 +196,7 @@ export function AdminOrders() {
       setExpandedOrder(null);
     } else {
       setExpandedOrder(orderId);
-      fetchItems(orderId);
+      fetchItems(orderId, order);
       if (order) fetchCustomerInfo(order);
     }
   };
@@ -205,9 +230,20 @@ export function AdminOrders() {
           .from('order_items')
           .select('*')
           .eq('order_id', order.id);
-        if (data) {
-          setOrderItems(prev => ({ ...prev, [order.id]: data }));
-          openInvoiceFromData(order, data);
+        if (data && data.length > 0) {
+          setOrderItems(prev => ({ ...prev, [order.id]: data as OrderItem[] }));
+          openInvoiceFromData(order, data as OrderItem[]);
+        } else {
+          const derived = (order.items || []).map((item, index) => ({
+            id: `${order.id}-${index}`,
+            product_name: item.name || 'Produto',
+            category: item.category || null,
+            quantity: Number(item.quantity || 0),
+            unit_price: Number(item.price || 0),
+            subtotal: Number(item.price || 0) * Number(item.quantity || 0),
+          }));
+          setOrderItems(prev => ({ ...prev, [order.id]: derived }));
+          openInvoiceFromData(order, derived);
         }
       } else {
         openInvoiceFromData(order, items);
@@ -550,7 +586,10 @@ export function AdminOrders() {
                                 <ul className="space-y-1">
                                   {orderItems[order.id].map(item => (
                                     <li key={item.id} className="text-sm flex justify-between">
-                                      <span>{item.quantity}x {item.product_name}</span>
+                                      <span>
+                                        {item.quantity}x {item.product_name}
+                                        {item.category ? ` (${item.category})` : ''}
+                                      </span>
                                       <span>€{Number(item.subtotal).toFixed(2)}</span>
                                     </li>
                                   ))}

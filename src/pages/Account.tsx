@@ -179,22 +179,12 @@ const Account = () => {
     }
     setChangingPassword(true);
     try {
-      const { updatePassword } = await import('firebase/auth');
-      const { auth } = await import('@/lib/firebase');
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        toast.error('Sessão expirada. Faça login novamente.');
-        return;
-      }
-      await updatePassword(currentUser, newPassword);
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
       toast.success('Palavra-passe alterada com sucesso!');
       setNewPassword('');
     } catch (err: any) {
-      if (err.code === 'auth/requires-recent-login') {
-        toast.error('Por segurança, faça logout e login novamente antes de alterar a palavra-passe.');
-      } else {
-        toast.error('Erro: ' + (err.message || 'Tente novamente'));
-      }
+      toast.error('Erro: ' + (err.message || 'Tente novamente'));
     } finally {
       setChangingPassword(false);
     }
@@ -560,6 +550,9 @@ const Account = () => {
               <CardContent className="p-4">
                 <p className="text-sm font-medium text-muted-foreground mb-2">Conta</p>
                 <p className="text-sm truncate">{user.email}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Membro desde {new Date(user.created_at).toLocaleDateString('pt-PT')}
+                </p>
               </CardContent>
             </Card>
 

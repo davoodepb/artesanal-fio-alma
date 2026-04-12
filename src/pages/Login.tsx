@@ -70,14 +70,11 @@ const Login = () => {
 
     if (error) {
       if (error.message?.includes('Email not confirmed')) {
-        toast.error('Email não verificado. Verifique o seu email para ativar a conta.', {
-          duration: 5000,
-          icon: '📧',
-        });
+        toast.error('Email não verificado. Verifique o seu email para ativar a conta.');
         navigate(`/verify-otp?email=${encodeURIComponent(loginEmail)}&redirect=${encodeURIComponent(redirect)}`);
         return;
       }
-      toast.error(error.message || 'Credenciais inválidas. Verifique o email e a palavra-passe.');
+      toast.error('Credenciais inválidas. Verifique o email e a palavra-passe.');
     } else {
       toast.success('Login efetuado com sucesso!');
       navigate(redirect);
@@ -107,10 +104,14 @@ const Login = () => {
     setIsSigningUp(false);
 
     if (error) {
-      toast.error(error.message || 'Erro ao criar conta');
+      if (error.message?.includes('already registered') || error.message?.includes('already been registered')) {
+        toast.error('Este email já está registado. Tente fazer login.');
+      } else {
+        toast.error('Erro ao criar conta: ' + error.message);
+      }
     } else if (needsVerification) {
       toast.success('Conta criada! Verifique o seu email para ativar a conta.', {
-        duration: 7000,
+        duration: 5000,
         icon: '📧',
       });
       navigate(`/verify-otp?email=${encodeURIComponent(signupEmail)}&redirect=${encodeURIComponent(redirect)}`);

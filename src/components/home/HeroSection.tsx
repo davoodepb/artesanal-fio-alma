@@ -35,7 +35,7 @@ export function HeroSection() {
           <rect fill="url(#stitch)" width="100%" height="100%" />
         </svg>
       </div>
-
+      
       <div className="container relative py-20 md:py-28 lg:py-36">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           {/* Content */}
@@ -44,17 +44,17 @@ export function HeroSection() {
               <Heart className="h-4 w-4 fill-primary" />
               <span>Feito à Mão com Amor</span>
             </div>
-
+            
             <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
               Peças únicas, feitas à mão com amor
               <span className="block gradient-text mt-2">Costura Artesanal</span>
             </h1>
-
+            
             <p className="text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0 leading-relaxed">
               Fio e Alma Studio, loja online de artesanato feito à mão. Cada ponto conta uma história.
               Descubra peças artesanais criadas por mãos experientes, com dedicação e carinho em cada detalhe.
             </p>
-
+            
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
               <Link to="/products">
                 <Button variant="hero" size="xl" className="rounded-full shadow-lg hover:shadow-xl transition-shadow">
@@ -68,7 +68,7 @@ export function HeroSection() {
                 </Button>
               </Link>
             </div>
-
+            
             {/* Trust indicators */}
             <div className="flex justify-center lg:justify-start gap-8 pt-6">
               <div className="text-center">
@@ -85,19 +85,31 @@ export function HeroSection() {
               </div>
             </div>
           </div>
-
+          
           {/* Image/Visual */}
           <div className="relative hidden lg:block">
             <div className="absolute -inset-8 bg-gradient-to-r from-primary/20 via-accent/20 to-primary/10 rounded-full blur-3xl" />
-
+            
             <div className="relative aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-secondary to-accent/20 border-2 border-craft/20 shadow-xl">
               <img
                 src={bgImage || '/placeholder.svg'}
                 alt="Costura artesanal feita à mão"
                 className="w-full h-full object-cover"
               />
-
-
+              
+              <div className="absolute top-6 right-6 bg-card/95 backdrop-blur rounded-2xl p-4 shadow-lg border border-craft/20 animate-bounce-subtle">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🧵</span>
+                  <p className="text-sm font-medium text-foreground">Linha & Agulha</p>
+                </div>
+              </div>
+              
+              <div className="absolute bottom-6 left-6 bg-card/95 backdrop-blur rounded-2xl p-4 shadow-lg border border-craft/20">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">✨</span>
+                  <p className="text-sm font-medium text-foreground">Peça Exclusiva</p>
+                </div>
+              </div>
 
               <svg className="absolute bottom-0 left-0 w-full h-20 opacity-50" viewBox="0 0 400 80" preserveAspectRatio="none">
                 <path d="M0,40 Q100,10 200,40 T400,40" fill="none" stroke="hsl(var(--craft))" strokeWidth="2" strokeDasharray="8,4" />

@@ -1,39 +1,35 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
-  User as FirebaseUser,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
+  browserLocalPersistence,
   createUserWithEmailAndPassword,
-  signInWithRedirect,
-  getRedirectResult,
-  signOut as firebaseSignOut,
+  GoogleAuthProvider,
+  onAuthStateChanged,
   sendEmailVerification,
-  sendPasswordResetEmail,
+  setPersistence,
+  signInWithRedirect,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  updateProfile,
+  User as FirebaseUser,
 } from 'firebase/auth';
-import { auth, googleProvider } from '@/lib/firebase';
-import { supabase } from '@/integrations/supabase/client';
+import { firebaseAuth } from '@/integrations/firebase/client';
 
-// Compatibility layer: expose a user shape that the rest of the app can consume
-// without needing to know about Firebase internals
-interface AppUser {
+interface AuthUser {
   id: string;
   email: string | null;
   email_confirmed_at: string | null;
-  user_metadata: {
-    full_name?: string | null;
-    name?: string | null;
-    avatar_url?: string | null;
-    picture?: string | null;
-    provider?: string;
-  };
-  app_metadata: {
-    provider?: string;
-  };
+  raw: FirebaseUser;
+}
+
+interface AuthSession {
+  access_token: string;
+  refresh_token?: string;
 }
 
 interface AuthContextType {
-  user: AppUser | null;
-  session: { user: AppUser } | null;
+  user: AuthUser | null;
+  session: AuthSession | null;
   isLoading: boolean;
   isAdmin: boolean;
   isEmailVerified: boolean;
@@ -43,241 +39,162 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   resendOtp: (email: string) => Promise<{ error: Error | null }>;
-  resendVerificationEmail: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function mapFirebaseUser(fbUser: FirebaseUser): AppUser {
-  const isGoogle = fbUser.providerData.some(p => p.providerId === 'google.com');
-  return {
-    id: fbUser.uid,
-    email: fbUser.email,
-    email_confirmed_at: fbUser.emailVerified ? new Date().toISOString() : null,
-    user_metadata: {
-      full_name: fbUser.displayName,
-      name: fbUser.displayName,
-      avatar_url: fbUser.photoURL,
-      picture: fbUser.photoURL,
-      provider: isGoogle ? 'google' : 'email',
-    },
-    app_metadata: {
-      provider: isGoogle ? 'google' : 'email',
-    },
-  };
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [firebaseUserRef, setFirebaseUserRef] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const ADMIN_UID = import.meta.env.VITE_FIREBASE_ADMIN_UID || '5efzvBMxHXOBkQMU8VcVLXBX8QS2';
 
-  const checkAdminRole = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .eq('role', 'admin')
-        .maybeSingle();
-      if (error) {
-        console.error('Error checking admin role:', error);
-        return false;
-      }
-      return data?.role === 'admin';
-    } catch (err) {
-      console.error('Error checking admin role:', err);
-      return false;
-    }
-  };
+  const toAuthUser = (firebaseUser: FirebaseUser): AuthUser => ({
+    id: firebaseUser.uid,
+    email: firebaseUser.email,
+    email_confirmed_at:
+      firebaseUser.emailVerified || firebaseUser.uid === ADMIN_UID ? new Date().toISOString() : null,
+    raw: firebaseUser,
+  });
 
-  const checkIfBlocked = async (userId: string): Promise<boolean> => {
+  const resolveAdminStatus = async (firebaseUser: FirebaseUser) => {
     try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('is_blocked')
-        .eq('user_id', userId)
-        .maybeSingle();
-      return !!(data as any)?.is_blocked;
+      const tokenResult = await firebaseUser.getIdTokenResult(true);
+      return tokenResult.claims.admin === true || firebaseUser.uid === ADMIN_UID;
     } catch {
-      return false;
+      return firebaseUser.uid === ADMIN_UID;
     }
   };
 
-  const syncProfileFromAuth = async (appUser: AppUser) => {
-    try {
-      const fullName = appUser.user_metadata?.full_name || appUser.user_metadata?.name || null;
-      const avatarUrl = appUser.user_metadata?.avatar_url || appUser.user_metadata?.picture || null;
-      await supabase
-        .from('profiles')
-        .upsert(
-          {
-            user_id: appUser.id,
-            full_name: fullName,
-            email: appUser.email || null,
-            avatar_url: avatarUrl,
-            updated_at: new Date().toISOString(),
-          } as any,
-          { onConflict: 'user_id' }
-        );
-    } catch (err) {
-      console.warn('Profile sync failed:', err);
-    }
+  const resolveSession = async (firebaseUser: FirebaseUser) => {
+    const token = await firebaseUser.getIdToken();
+    setSession({ access_token: token, refresh_token: firebaseUser.refreshToken });
   };
 
   useEffect(() => {
-    // Handle redirect result on page load (after Google sign-in redirect)
-    getRedirectResult(auth).catch((err) => {
-      console.error('getRedirectResult error:', err);
+    setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {
+      // Keep default persistence if browser blocks persistent storage.
     });
 
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      setFirebaseUserRef(fbUser);
-      if (fbUser) {
-        const appUser = mapFirebaseUser(fbUser);
-        setUser(appUser);
-        setIsEmailVerified(fbUser.emailVerified || fbUser.providerData.some(p => p.providerId === 'google.com'));
-        // Sync profile to Supabase
-        syncProfileFromAuth(appUser);
-        // Check blocked status
-        const blocked = await checkIfBlocked(appUser.id);
-        if (blocked) {
-          await firebaseSignOut(auth);
-          setUser(null);
-          setIsAdmin(false);
-          setIsEmailVerified(false);
-          setIsLoading(false);
-          return;
-        }
-        // Check admin role
-        const adminStatus = await checkAdminRole(appUser.id);
-        setIsAdmin(adminStatus);
-      } else {
+    const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+      if (!firebaseUser) {
         setUser(null);
+        setSession(null);
         setIsAdmin(false);
         setIsEmailVerified(false);
+        setIsLoading(false);
+        return;
       }
+
+      setUser(toAuthUser(firebaseUser));
+      setIsEmailVerified(firebaseUser.emailVerified || firebaseUser.uid === ADMIN_UID);
+      await resolveSession(firebaseUser);
+      setIsAdmin(await resolveAdminStatus(firebaseUser));
       setIsLoading(false);
     });
+
     return () => unsubscribe();
   }, []);
 
   const signIn = async (email: string, password: string) => {
     try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      if (!result.user.emailVerified) {
-        return { error: new Error('Por favor, verifica o teu email antes de iniciar sessão.') };
-      }
+      await signInWithEmailAndPassword(firebaseAuth, email, password);
       return { error: null };
-    } catch (err: any) {
-      console.error("SignIn full error:", err);
-      let message = err.message || 'Erro ao entrar';
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        message = 'Email ou palavra-passe incorretos.';
-      } else if (err.code === 'auth/too-many-requests') {
-        message = 'Muitas tentativas falhadas. Tente mais tarde.';
-      } else if (err.code === 'auth/internal-error') {
-        message = 'Erro interno do Firebase. Verifica a consola.';
-      }
-      return { error: new Error(message) };
+    } catch (error) {
+      return { error: error as Error };
     }
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      // Send email verification
+      const result = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+      if (fullName) {
+        await updateProfile(result.user, { displayName: fullName });
+      }
       await sendEmailVerification(result.user);
-      // Sign out immediately — user must verify email first
-      await firebaseSignOut(auth);
       return { error: null, needsVerification: true };
-    } catch (err: any) {
-      console.error("SignUp full error:", err);
-      let message = err.message || 'Erro ao criar conta';
-      if (err.code === 'auth/email-already-in-use') {
-        message = 'Este email já está registado. Tente fazer login.';
-      } else if (err.code === 'auth/weak-password') {
-        message = 'A palavra-passe é muito fraca. Use pelo menos 6 caracteres.';
-      } else if (err.code === 'auth/invalid-email') {
-        message = 'Email inválido.';
-      } else if (err.code === 'auth/internal-error') {
-        message = 'Erro interno do Firebase. Verifica a consola.';
-      }
-      return { error: new Error(message) };
+    } catch (error) {
+      return { error: error as Error, needsVerification: false };
     }
   };
 
-  const signInWithGoogleHandler = async () => {
+  const verifyOtp = async (email: string, token: string) => {
+    void email;
+    void token;
+    const currentUser = firebaseAuth.currentUser;
+    if (!currentUser) {
+      return { error: new Error('Sessão expirada. Faça login novamente para verificar o email.') };
+    }
+
+    await currentUser.reload();
+    if (!currentUser.emailVerified) {
+      return { error: new Error('Email ainda não verificado. Abra o link enviado no email e tente novamente.') };
+    }
+
+    return { error: null };
+  };
+
+  const resendOtp = async (email: string) => {
+    void email;
+    const currentUser = firebaseAuth.currentUser;
+    if (!currentUser) {
+      return { error: new Error('Faça login novamente para reenviar o email de verificação.') };
+    }
+
     try {
-      signInWithRedirect(auth, googleProvider);
+      await sendEmailVerification(currentUser);
       return { error: null };
-    } catch (err: any) {
-      console.error("Google login full error:", err);
-      let message = err.message || 'Erro desconhecido ao entrar com Google';
-      if (err.code === 'auth/operation-not-allowed') {
-        message = 'Google Login não está ativo no Firebase Console.';
-      } else if (err.code === 'auth/unauthorized-domain') {
-        message = 'Domínio não autorizado no Firebase.';
-      }
-      return { error: new Error(message) };
+    } catch (error) {
+      return { error: error as Error };
     }
   };
 
-  const handleSignOut = async () => {
+  const signOut = async () => {
     sessionStorage.removeItem('admin_authenticated');
-    await firebaseSignOut(auth);
+    await firebaseSignOut(firebaseAuth);
+
     setIsAdmin(false);
     setIsEmailVerified(false);
   };
 
-  // OTP functions — Firebase doesn't use OTP codes, but we keep the interface
-  // so that existing code doesn't break. These are no-ops.
-  const verifyOtp = async (_email: string, _token: string) => {
-    return { error: new Error('Firebase uses email link verification, not OTP codes.') };
-  };
-
-  const resendOtp = async (_email: string) => {
-    // If there's a current Firebase user (unverified), resend verification
-    if (firebaseUserRef && !firebaseUserRef.emailVerified) {
-      try {
-        await sendEmailVerification(firebaseUserRef);
-        return { error: null };
-      } catch (err: any) {
-        return { error: new Error(err.message) };
+  const signInWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(firebaseAuth, provider);
+      return { error: null };
+    } catch (error: any) {
+      const code = String(error?.code || '');
+      if (code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request') {
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          await signInWithRedirect(firebaseAuth, provider);
+          return { error: null };
+        } catch (redirectError) {
+          return { error: redirectError as Error };
+        }
       }
+      return { error: error as Error };
     }
-    return { error: new Error('Nenhum utilizador encontrado para reenviar verificação.') };
-  };
-
-  const resendVerificationEmail = async () => {
-    if (firebaseUserRef && !firebaseUserRef.emailVerified) {
-      try {
-        await sendEmailVerification(firebaseUserRef);
-        return { error: null };
-      } catch (err: any) {
-        return { error: new Error(err.message) };
-      }
-    }
-    return { error: new Error('Nenhum utilizador encontrado.') };
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        session: user ? { user } : null,
+        session,
         isLoading,
         isAdmin,
         isEmailVerified,
         signIn,
         signUp,
-        signInWithGoogle: signInWithGoogleHandler,
-        signOut: handleSignOut,
+        signInWithGoogle,
+        signOut,
         verifyOtp,
         resendOtp,
-        resendVerificationEmail,
       }}
     >
       {children}

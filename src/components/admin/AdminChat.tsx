@@ -152,6 +152,19 @@ export function AdminChat() {
   }, []);
 
   useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      fetchConversations();
+      if (selectedConvRef.current?.id) {
+        fetchMessages(selectedConvRef.current.id);
+      }
+    }, 4000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
     scrollToBottom();
   }, [messages]);
 

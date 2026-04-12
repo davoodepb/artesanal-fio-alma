@@ -1,12 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { firebaseAuth, firebaseStorage } from '@/integrations/firebase/client';
 import { cn } from '@/lib/utils';
-import { processImageForUpload, processImagesForUpload } from '@/lib/imageUtils';
+import { processImageForUpload } from '@/lib/imageUtils';
 
 interface ImageUploadProps {
   value: string;
@@ -28,7 +29,33 @@ export function ImageUpload({
   previewClassName,
 }: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
+  const [imageSource, setImageSource] = useState<'upload' | 'url'>(value ? 'url' : 'upload');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!value && imageSource === 'url') {
+      setImageSource('upload');
+    }
+  }, [value, imageSource]);
+
+  const uploadToFirebase = async (file: File) => {
+    const optimizedFile = await processImageForUpload(file);
+    const fileExt = optimizedFile.name.split('.').pop() || 'webp';
+    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const storagePath = `${bucket}/${fileName}`;
+
+    // Prevent endless spinner when storage rules/bucket are misconfigured.
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Upload demorou demasiado tempo. Verifique Firebase Storage.')), 20000);
+    });
+
+    await Promise.race([
+      uploadBytes(ref(firebaseStorage, storagePath), optimizedFile, { contentType: optimizedFile.type }),
+      timeoutPromise,
+    ]);
+
+    return getDownloadURL(ref(firebaseStorage, storagePath));
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -48,37 +75,20 @@ export function ImageUpload({
 
     setIsUploading(true);
     try {
-      // Auto-resize image before upload
-      const optimizedFile = await processImageForUpload(file);
+      if (!firebaseAuth.currentUser) {
+        toast.error('Faça login como admin para carregar imagens.');
+        setIsUploading(false);
+        return;
+      }
 
-      const fileExt = optimizedFile.name.split('.').pop();
-      const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(fileName, optimizedFile, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(fileName);
-
+      const publicUrl = await uploadToFirebase(file);
       onChange(publicUrl);
+      setImageSource('upload');
       toast.success('Imagem carregada com sucesso!');
     } catch (error: any) {
       console.error('Upload error:', error);
       const msg = error?.message || '';
-      if (msg.includes('security') || msg.includes('policy') || msg.includes('permission') || msg.includes('row-level')) {
-        toast.error('Sem permissão para fazer upload. Verifique que tem o papel de admin.');
-      } else if (msg.includes('Bucket not found') || msg.includes('bucket')) {
-        toast.error('Bucket de armazenamento não encontrado. Use a opção de colar URL abaixo.');
-      } else {
-        toast.error('Erro ao carregar imagem: ' + (msg || 'Tente novamente ou cole o URL abaixo'));
-      }
+      toast.error('Erro ao carregar imagem: ' + (msg || 'Tente novamente ou use a opção URL'));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -94,6 +104,25 @@ export function ImageUpload({
   return (
     <div className={cn('space-y-2', className)}>
       <Label>{label}</Label>
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={imageSource === 'upload' ? 'default' : 'outline'}
+          onClick={() => setImageSource('upload')}
+        >
+          Upload imagem
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={imageSource === 'url' ? 'default' : 'outline'}
+          onClick={() => setImageSource('url')}
+        >
+          URL da imagem
+        </Button>
+      </div>
       
       {value ? (
         <div className={cn('relative rounded-lg overflow-hidden border border-border group', previewClassName)}>
@@ -129,7 +158,7 @@ export function ImageUpload({
             </Button>
           </div>
         </div>
-      ) : (
+      ) : imageSource === 'upload' ? (
         <div
           onClick={() => !isUploading && fileInputRef.current?.click()}
           className={cn(
@@ -154,14 +183,20 @@ export function ImageUpload({
             </div>
           )}
         </div>
+      ) : (
+        <div className="text-xs text-muted-foreground border rounded-lg p-3 bg-muted/30">
+          Cole abaixo o URL da imagem.
+        </div>
       )}
 
-      {/* URL manual input */}
       <div className="flex gap-2">
         <Input
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Ou cole o URL da imagem"
+          onChange={(e) => {
+            setImageSource('url');
+            onChange(e.target.value);
+          }}
+          placeholder="https://..."
           className="text-xs"
         />
       </div>
@@ -195,7 +230,18 @@ export function MultiImageUpload({
   max = 10,
 }: MultiImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
+  const [manualUrl, setManualUrl] = useState('');
+  const [imageSource, setImageSource] = useState<'upload' | 'url'>('upload');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadToFirebase = async (file: File) => {
+    const optimizedFile = await processImageForUpload(file);
+    const fileExt = optimizedFile.name.split('.').pop() || 'webp';
+    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const storagePath = `${bucket}/${fileName}`;
+    await uploadBytes(ref(firebaseStorage, storagePath), optimizedFile, { contentType: optimizedFile.type });
+    return getDownloadURL(ref(firebaseStorage, storagePath));
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -211,25 +257,15 @@ export function MultiImageUpload({
     const newUrls: string[] = [];
 
     try {
-      // Auto-resize all images before upload
-      const optimizedFiles = await processImagesForUpload(
-        files.filter(f => f.type.startsWith('image/') && f.size <= 5 * 1024 * 1024)
-      );
+      if (!firebaseAuth.currentUser) {
+        toast.error('Faça login como admin para carregar imagens.');
+        setIsUploading(false);
+        return;
+      }
 
-      for (const file of optimizedFiles) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from(bucket)
-          .upload(fileName, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(fileName);
-
+      const validFiles = files.filter((f) => f.type.startsWith('image/') && f.size <= 5 * 1024 * 1024);
+      for (const file of validFiles) {
+        const publicUrl = await uploadToFirebase(file);
         newUrls.push(publicUrl);
       }
 
@@ -248,9 +284,46 @@ export function MultiImageUpload({
     onChange(values.filter((_, i) => i !== index));
   };
 
+  const handleAddUrl = () => {
+    const url = manualUrl.trim();
+    if (!url) {
+      toast.error('Introduza um URL de imagem');
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      toast.error('URL inválido. Use http:// ou https://');
+      return;
+    }
+    if (values.length >= max) {
+      toast.error(`Limite de ${max} imagens atingido`);
+      return;
+    }
+    onChange([...values, url]);
+    setManualUrl('');
+  };
+
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={imageSource === 'upload' ? 'default' : 'outline'}
+          onClick={() => setImageSource('upload')}
+        >
+          Upload imagem
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={imageSource === 'url' ? 'default' : 'outline'}
+          onClick={() => setImageSource('url')}
+        >
+          URL da imagem
+        </Button>
+      </div>
       
       <div className="grid grid-cols-3 gap-2">
         {values.map((url, index) => (
@@ -272,7 +345,7 @@ export function MultiImageUpload({
           </div>
         ))}
         
-        {values.length < max && (
+        {values.length < max && imageSource === 'upload' && (
           <div
             onClick={() => !isUploading && fileInputRef.current?.click()}
             className="border-2 border-dashed border-border rounded-lg h-24 flex items-center justify-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
@@ -285,6 +358,20 @@ export function MultiImageUpload({
           </div>
         )}
       </div>
+
+      {imageSource === 'url' && (
+        <div className="flex gap-2">
+          <Input
+            value={manualUrl}
+            onChange={(e) => setManualUrl(e.target.value)}
+            placeholder="https://..."
+            className="text-xs"
+          />
+          <Button type="button" variant="outline" onClick={handleAddUrl}>
+            Adicionar URL
+          </Button>
+        </div>
+      )}
 
       <input
         ref={fileInputRef}

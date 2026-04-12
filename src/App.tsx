@@ -24,6 +24,7 @@ const Cart = lazy(() => import('./pages/Cart'));
 const Checkout = lazy(() => import('./pages/Checkout'));
 const Login = lazy(() => import('./pages/Login'));
 const Admin = lazy(() => import('./pages/Admin'));
+const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const Categories = lazy(() => import('./pages/Categories'));
 const CategorySEO = lazy(() => import('./pages/CategorySEO'));
 const About = lazy(() => import('./pages/About'));
@@ -39,15 +40,6 @@ const Contact = lazy(() => import('./pages/Contact'));
 const VerifyOTP = lazy(() => import('./pages/VerifyOTP'));
 
 const queryClient = new QueryClient();
-
-const SecretAdminRoute = ({ children }: { children: React.ReactNode }) => {
-  if (typeof window === 'undefined') {
-    return <NotFound />;
-  }
-
-  const hasUnlockedAdmin = sessionStorage.getItem('admin_access_unlocked') === 'true';
-  return hasUnlockedAdmin ? <>{children}</> : <NotFound />;
-};
 
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-[60vh]">
@@ -80,8 +72,8 @@ const App = () => (
                   <Route path="/checkout" element={<Checkout />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/verify-otp" element={<VerifyOTP />} />
-                  <Route path="/admin-login" element={<NotFound />} />
-                  <Route path="/admin" element={<SecretAdminRoute><Admin /></SecretAdminRoute>} />
+                  <Route path="/admin-login" element={<AdminLogin />} />
+                  <Route path="/admin" element={<Admin />} />
                   <Route path="/blog" element={<Blog />} />
                   <Route path="/blog/:slug" element={<BlogPost />} />
                   <Route path="/privacy" element={<Privacy />} />

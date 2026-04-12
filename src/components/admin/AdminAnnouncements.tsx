@@ -11,11 +11,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { toast } from 'sonner';
 import { Plus, Edit, Trash2, Loader2, Megaphone } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { ImageUpload } from './ImageUpload';
 
 interface Announcement {
   id: string;
   title: string;
   body: string | null;
+  image_url?: string | null;
+  link?: string | null;
   is_published: boolean;
   created_at: string;
 }
@@ -29,6 +32,8 @@ export function AdminAnnouncements() {
   const [form, setForm] = useState({
     title: '',
     body: '',
+    image_url: '',
+    link: '',
     is_published: true,
   });
 
@@ -55,7 +60,7 @@ export function AdminAnnouncements() {
   };
 
   const resetForm = () => {
-    setForm({ title: '', body: '', is_published: true });
+    setForm({ title: '', body: '', image_url: '', link: '', is_published: true });
     setEditingAnnouncement(null);
   };
 
@@ -64,6 +69,8 @@ export function AdminAnnouncements() {
     setForm({
       title: announcement.title,
       body: announcement.body || '',
+      image_url: announcement.image_url || '',
+      link: announcement.link || '',
       is_published: announcement.is_published,
     });
     setIsDialogOpen(true);
@@ -77,6 +84,11 @@ export function AdminAnnouncements() {
       return;
     }
 
+    if (form.link && !/^https?:\/\//i.test(form.link)) {
+      toast.error('O link deve começar por http:// ou https://');
+      return;
+    }
+
     setIsSaving(true);
     try {
       if (editingAnnouncement) {
@@ -85,6 +97,8 @@ export function AdminAnnouncements() {
           .update({
             title: form.title,
             body: form.body || null,
+            image_url: form.image_url || null,
+            link: form.link || null,
             is_published: form.is_published,
           })
           .eq('id', editingAnnouncement.id);
@@ -93,7 +107,7 @@ export function AdminAnnouncements() {
 
         setAnnouncements(prev =>
           prev.map(a => a.id === editingAnnouncement.id
-            ? { ...a, title: form.title, body: form.body || null, is_published: form.is_published }
+            ? { ...a, title: form.title, body: form.body || null, image_url: form.image_url || null, link: form.link || null, is_published: form.is_published }
             : a
           )
         );
@@ -104,6 +118,8 @@ export function AdminAnnouncements() {
           .insert({
             title: form.title,
             body: form.body || null,
+            image_url: form.image_url || null,
+            link: form.link || null,
             is_published: form.is_published,
           })
           .select()
@@ -208,6 +224,22 @@ export function AdminAnnouncements() {
                   onChange={(e) => setForm({ ...form, body: e.target.value })}
                   placeholder="Escreva o conteúdo do anúncio..."
                   rows={5}
+                />
+              </div>
+
+              <ImageUpload
+                value={form.image_url}
+                onChange={(url) => setForm({ ...form, image_url: url })}
+                folder="announcements"
+                label="Imagem do Anúncio"
+              />
+
+              <div className="space-y-2">
+                <Label>Link do anúncio (opcional)</Label>
+                <Input
+                  value={form.link}
+                  onChange={(e) => setForm({ ...form, link: e.target.value })}
+                  placeholder="https://..."
                 />
               </div>
 
