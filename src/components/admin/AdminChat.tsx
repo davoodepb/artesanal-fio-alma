@@ -181,7 +181,6 @@ export function AdminChat() {
       const { data: convData, error } = await supabase
         .from('chat_conversations')
         .select('*')
-        .in('status', ['open', 'active'])
         .order('updated_at', { ascending: false });
 
       if (error) throw error;

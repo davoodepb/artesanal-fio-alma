@@ -1,8 +1,18 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     match /{allPaths=**} {
-      allow read, write: if true;
+      allow read: if !allPaths.matches('chat-images/.*') || isAuthenticated();
+      allow write: if !allPaths.matches('chat-images/.*') && isAuthenticated();
+    }
+
+    match /chat-images/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
   }
 }
