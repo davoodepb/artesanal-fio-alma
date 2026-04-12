@@ -46,7 +46,7 @@ const menuItems = [
 
 export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badges = {} }: AdminSidebarProps) {
   return (
-    <div className="flex flex-col h-full bg-card border-r border-border w-64">
+    <div className="relative z-40 flex flex-col h-full bg-card border-r border-border w-64">
       {/* Logo and Avatar */}
       <div className="p-6 border-b border-border">
         <div className="flex items-center gap-3">
@@ -61,7 +61,7 @@ export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badg
       </div>
 
       {/* Navigation */}
-      <div className="flex-1 py-4 overflow-y-auto">
+      <div className="min-h-0 flex-1 py-4 overflow-y-auto pb-6">
         <nav className="space-y-1 px-3">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -73,7 +73,7 @@ export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badg
                 type="button"
                 onClick={() => onTabChange(item.id)}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200",
+                  "relative z-10 w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer",
                   isActive
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -98,7 +98,7 @@ export function AdminSidebar({ activeTab, onTabChange, onLogout, userEmail, badg
       </div>
 
       {/* Logout */}
-      <div className="p-4 border-t border-border">
+      <div className="shrink-0 p-4 border-t border-border bg-card">
         <Button 
           variant="ghost" 
           size="sm" 
