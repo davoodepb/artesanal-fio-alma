@@ -86,6 +86,13 @@ function applyOrderAndLimit(rows: any[], ordering: Order[], limitCount?: number)
   return out;
 }
 
+function isFirestoreIndexError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const code = String((error as { code?: unknown }).code || '');
+  const msg = String((error as { message?: unknown }).message || '').toLowerCase();
+  return code.includes('failed-precondition') || msg.includes('index');
+}
+
 type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE';
 
 type RealtimeListener = {
@@ -138,6 +145,17 @@ async function readTable(table: string, filters: Filter[] = [], ordering: Order[
       const snap = await getDocs(q as any);
       all.push(...snap.docs.map((d) => ({ id: d.id, ...d.data(), __collection: name })));
     } catch (error) {
+      // Fallback for missing Firestore composite indexes: read collection and filter client-side.
+      if (isFirestoreIndexError(error)) {
+        try {
+          const rawSnap = await getDocs(collection(firestore, name));
+          all.push(...rawSnap.docs.map((d) => ({ id: d.id, ...d.data(), __collection: name })));
+          continue;
+        } catch (fallbackError) {
+          lastError = fallbackError;
+          continue;
+        }
+      }
       lastError = error;
     }
   }

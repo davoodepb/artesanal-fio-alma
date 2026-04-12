@@ -11,6 +11,7 @@ import { processImageForUpload } from '@/lib/imageUtils';
 import { parseFirebaseUploadError, UploadDiagnostic } from '@/lib/firebaseUploadDiagnostics';
 
 const UPLOAD_TIMEOUT_MS = 90_000;
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 
 function uploadResumableWithTimeout(path: string, file: File) {
   return new Promise<void>((resolve, reject) => {
@@ -37,6 +38,15 @@ function uploadResumableWithTimeout(path: string, file: File) {
         resolve();
       }
     );
+  });
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Falha ao converter imagem em data URL.'));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -105,7 +115,18 @@ export function ImageUpload({
         return;
       }
 
-      const publicUrl = await uploadToFirebase(file);
+      const optimized = await processImageForUpload(file);
+      let publicUrl: string;
+      try {
+        publicUrl = await uploadToFirebase(optimized);
+      } catch (uploadError) {
+        if (optimized.size > MAX_INLINE_IMAGE_BYTES) {
+          throw uploadError;
+        }
+        publicUrl = await fileToDataUrl(optimized);
+        toast.info('Storage indisponivel. Imagem salva em modo compatibilidade.');
+      }
+
       onChange(publicUrl);
       setImageSource('upload');
       setDiagnostic(null);
@@ -331,7 +352,17 @@ export function MultiImageUpload({
 
       const validFiles = files.filter((f) => f.type.startsWith('image/') && f.size <= 5 * 1024 * 1024);
       for (const file of validFiles) {
-        const publicUrl = await uploadToFirebase(file);
+        const optimized = await processImageForUpload(file);
+        let publicUrl: string;
+        try {
+          publicUrl = await uploadToFirebase(optimized);
+        } catch (uploadError) {
+          if (optimized.size > MAX_INLINE_IMAGE_BYTES) {
+            throw uploadError;
+          }
+          publicUrl = await fileToDataUrl(optimized);
+          toast.info('Storage indisponivel. Uma imagem foi salva em modo compatibilidade.');
+        }
         newUrls.push(publicUrl);
       }
 
