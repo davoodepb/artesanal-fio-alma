@@ -4,7 +4,9 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  query,
+  query as firestoreQuery,
+  orderBy,
+  limit as firestoreLimit,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -83,13 +85,43 @@ function applyOrderAndLimit(rows: any[], ordering: Order[], limitCount?: number)
   return out;
 }
 
-async function readTable(table: string) {
+async function readTable(table: string, filters: Filter[] = [], ordering: Order[] = [], limitCount?: number) {
   const names = normalizeTableNames(table);
   const all: any[] = [];
+  let lastError: unknown = null;
 
   for (const name of names) {
-    const snap = await getDocs(collection(firestore, name));
-    all.push(...snap.docs.map((d) => ({ id: d.id, ...d.data(), __collection: name })));
+    try {
+      const constraints: any[] = [];
+
+      for (const f of filters) {
+        if (f.op === 'eq') constraints.push(where(f.column, '==', f.value));
+        if (f.op === 'lte') constraints.push(where(f.column, '<=', f.value));
+        if (f.op === 'gte') constraints.push(where(f.column, '>=', f.value));
+        if (f.op === 'in' && Array.isArray(f.value) && f.value.length > 0) constraints.push(where(f.column, 'in', f.value));
+      }
+
+      for (const o of ordering) {
+        constraints.push(orderBy(o.column, o.ascending ? 'asc' : 'desc'));
+      }
+
+      if (typeof limitCount === 'number') {
+        constraints.push(firestoreLimit(limitCount));
+      }
+
+      const q = constraints.length > 0
+        ? firestoreQuery(collection(firestore, name), ...constraints)
+        : collection(firestore, name);
+
+      const snap = await getDocs(q as any);
+      all.push(...snap.docs.map((d) => ({ id: d.id, ...d.data(), __collection: name })));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (all.length === 0 && lastError) {
+    throw lastError;
   }
 
   return all;
@@ -143,20 +175,33 @@ class FirestoreSupabaseQuery {
       if (this.mode === 'insert') {
         const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
         const created: any[] = [];
-        const table = normalizeTableNames(this.table)[0];
+        const tableCandidates = normalizeTableNames(this.table);
         for (const row of rows) {
           const payload = {
             ...row,
             created_at: row?.created_at || new Date().toISOString(),
           };
-          const ref = await addDoc(collection(firestore, table), payload);
+          let ref: any = null;
+          let insertErr: unknown = null;
+
+          for (const table of tableCandidates) {
+            try {
+              ref = await addDoc(collection(firestore, table), payload);
+              break;
+            } catch (error) {
+              insertErr = error;
+            }
+          }
+
+          if (!ref) throw insertErr || new Error('Insert failed');
           created.push({ id: ref.id, ...payload });
         }
         if (this.singleMode === 'single') return { data: created[0] || null, error: null };
         return { data: created, error: null };
       }
 
-      const source = await readTable(this.table);
+      const serverFilters = this.filters.filter((f) => f.op !== 'or');
+      const source = await readTable(this.table, serverFilters, this.ordering, this.limitCount);
       const filtered = applyOrderAndLimit(applyFilters(source, this.filters), this.ordering, this.limitCount);
 
       if (this.mode === 'update' || this.mode === 'upsert') {
@@ -171,9 +216,21 @@ class FirestoreSupabaseQuery {
         if (this.mode === 'upsert' && updated.length === 0 && this.payload) {
           const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
           const created: any[] = [];
-          const table = normalizeTableNames(this.table)[0];
+          const tableCandidates = normalizeTableNames(this.table);
           for (const row of rows) {
-            const ref = await addDoc(collection(firestore, table), row);
+            let ref: any = null;
+            let insertErr: unknown = null;
+
+            for (const table of tableCandidates) {
+              try {
+                ref = await addDoc(collection(firestore, table), row);
+                break;
+              } catch (error) {
+                insertErr = error;
+              }
+            }
+
+            if (!ref) throw insertErr || new Error('Upsert insert failed');
             created.push({ id: ref.id, ...row });
           }
           if (this.singleMode === 'single') return { data: created[0] || null, error: null };
