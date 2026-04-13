@@ -8,7 +8,7 @@ const Returns = () => {
       <SEOHead
         title="Política de Devoluções | Fio & Alma Studio"
         description="Conheça a política de devoluções e reembolsos da Fio & Alma Studio. Prazo de 14 dias, condições e procedimento para devolução de produtos artesanais."
-        canonical="https://fioealma.pt/returns"
+        canonical="https://fio-alma-studio.vercel.app/returns"
       />
       <div className="container py-10 max-w-3xl prose prose-slate dark:prose-invert mx-auto">
         <h1 className="font-serif text-3xl font-bold mb-2">Política de Devoluções</h1>

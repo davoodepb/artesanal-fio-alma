@@ -93,7 +93,7 @@ const CategorySEO = () => {
     '@type': 'Product',
     name: product.name,
     description: product.description || categoryDescription,
-    image: product.images?.[0] || 'https://fioealma.pt/icons/icon-512.png',
+    image: product.images?.[0] || 'https://fio-alma-studio.vercel.app/icons/icon-512.png',
     sku: product.id,
     category: categoryName,
     offers: {
@@ -101,7 +101,7 @@ const CategorySEO = () => {
       priceCurrency: 'EUR',
       price: product.price,
       availability: product.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-      url: `https://fioealma.pt/product/${product.slug}`,
+      url: `https://fio-alma-studio.vercel.app/product/${product.slug}`,
     },
   }));
 
@@ -111,14 +111,14 @@ const CategorySEO = () => {
         title={`${categoryName} Artesanal | Comprar ${categoryName} Online - Fio e Alma Studio`}
         description={categoryDescription}
         keywords={keywords}
-        canonical={`https://fioealma.pt/categoria/${slug}`}
+        canonical={`https://fio-alma-studio.vercel.app/categoria/${slug}`}
         structuredData={{
           '@context': 'https://schema.org',
           '@graph': [
             {
               '@type': 'CollectionPage',
               name: `${categoryName} Artesanal`,
-              url: `https://fioealma.pt/categoria/${slug}`,
+              url: `https://fio-alma-studio.vercel.app/categoria/${slug}`,
               description: categoryDescription,
             },
             {

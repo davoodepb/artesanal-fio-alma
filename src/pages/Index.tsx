@@ -44,27 +44,27 @@ const Index = () => {
   return (
     <Layout>
       <SEOHead
-        title="Artesanato | Fio e Alma Studio"
-        description="Loja online de artesanato feito à mão: crochê, bordados, cerâmica e muito mais. Descubra peças únicas no Fio e Alma Studio."
+        title="Fio e Alma Studio | Artesanato feito à mão"
+        description="Fio e Alma Studio — artesanato feito à mão com amor e detalhe. Peças únicas, personalizadas e criadas artesanalmente em Portugal."
         keywords={homepageKeywords}
-        canonical="https://fioealma.pt/"
+        canonical="https://fio-alma-studio.vercel.app/"
         structuredData={{
           '@context': 'https://schema.org',
           '@graph': [
             {
               '@type': 'LocalBusiness',
-              '@id': 'https://fioealma.pt/#localbusiness',
+              '@id': 'https://fio-alma-studio.vercel.app/#localbusiness',
               name: 'Fio e Alma Studio',
-              url: 'https://fioealma.pt/',
-              image: 'https://fioealma.pt/icons/icon-512.png',
+              url: 'https://fio-alma-studio.vercel.app/',
+              image: 'https://fio-alma-studio.vercel.app/icons/icon-512.png',
               description: 'Loja online de artesanato feito a mao com pecas unicas e producao artesanal.',
               areaServed: 'Portugal',
             },
             {
               '@type': 'OnlineStore',
-              '@id': 'https://fioealma.pt/#onlinestore',
+              '@id': 'https://fio-alma-studio.vercel.app/#onlinestore',
               name: 'Fio e Alma Studio',
-              url: 'https://fioealma.pt/',
+              url: 'https://fio-alma-studio.vercel.app/',
               description: 'Loja online de artesanato feito a mao: croche, ceramica, bordados, bijuteria e costura criativa.',
               keywords: homepageKeywords,
               knowsAbout: mainCraftCategories,

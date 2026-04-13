@@ -38,7 +38,7 @@ const Contact = () => {
       <SEOHead
         title="Contacto | Fio & Alma Studio"
         description="Entre em contacto com a Fio & Alma Studio. Estamos disponíveis para ajudar com encomendas, dúvidas e pedidos personalizados. Email, telefone e formulário."
-        canonical="https://fioealma.pt/contact"
+        canonical="https://fio-alma-studio.vercel.app/contact"
       />
       <div className="container py-10 max-w-5xl">
         <div className="text-center mb-12">

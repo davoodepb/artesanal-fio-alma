@@ -117,7 +117,7 @@ const Products = () => {
           'cerâmica artesanal',
           'presentes artesanais',
         ]}
-        canonical="https://fioealma.pt/products"
+        canonical="https://fio-alma-studio.vercel.app/products"
       />
       <div className="container py-8">
         {/* Header */}

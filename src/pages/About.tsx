@@ -90,7 +90,7 @@ const About = () => {
       <SEOHead
         title="Sobre Nós | Artesãs Portuguesas - Feito à Mão com Amor | Fio & Alma Studio"
         description="Conheça as artesãs por trás do Fio & Alma Studio. Duas mãos, uma paixão: criar peças artesanais únicas com dedicação e amor."
-        canonical="https://fioealma.pt/about"
+        canonical="https://fio-alma-studio.vercel.app/about"
       />
       <div className="container py-12 md:py-16">
         {/* Hero */}

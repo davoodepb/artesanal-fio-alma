@@ -359,7 +359,7 @@ const BlogPost = () => {
     return <Navigate to="/blog" replace />;
   }
 
-  const shareUrl = `https://fioealma.pt/blog/${slug}`;
+  const shareUrl = `https://fio-alma-studio.vercel.app/blog/${slug}`;
 
   const handleShare = () => {
     if (navigator.share) {
@@ -383,7 +383,7 @@ const BlogPost = () => {
           description: post.excerpt,
           datePublished: post.date,
           keywords: post.keywords.join(', '),
-          image: `https://fioealma.pt/icons/icon-512.png`,
+          image: `https://fio-alma-studio.vercel.app/icons/icon-512.png`,
           author: { "@type": "Organization", name: "Fio & Alma Studio" },
           publisher: { "@type": "Organization", name: "Fio & Alma Studio" },
           url: shareUrl,

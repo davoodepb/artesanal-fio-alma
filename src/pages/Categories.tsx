@@ -34,7 +34,7 @@ const Categories = () => {
           'cerâmica',
           'bijuteria artesanal',
         ]}
-        canonical="https://fioealma.pt/categories"
+        canonical="https://fio-alma-studio.vercel.app/categories"
       />
       <div className="container py-10">
         {/* Header */}

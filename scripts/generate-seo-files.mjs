@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const DEFAULT_SITE_URL = 'https://fioealma.pt';
+const DEFAULT_SITE_URL = 'https://fio-alma-studio.vercel.app';
 const now = new Date().toISOString();
 
 const staticPages = [

@@ -80,7 +80,7 @@ This project now auto-generates `public/sitemap.xml` and `public/robots.txt` on 
 
 Set these variables in Vercel Project Settings:
 
-- `VITE_SITE_URL` -> your production domain, e.g. `https://fioealma.pt`
+- `VITE_SITE_URL` -> your production domain, e.g. `https://fio-alma-studio.vercel.app`
 - `VITE_GOOGLE_SITE_VERIFICATION` -> value provided by Google Search Console
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or `VITE_SUPABASE_ANON_KEY`) -> used to include live categories/products in sitemap
 

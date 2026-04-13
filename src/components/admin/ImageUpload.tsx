@@ -11,6 +11,7 @@ import { processImageForUpload } from '@/lib/imageUtils';
 import { parseFirebaseUploadError, UploadDiagnostic } from '@/lib/firebaseUploadDiagnostics';
 
 const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
+const UPLOAD_TIMEOUT_MS = 45_000;
 
 function uploadResumableWithTimeout(path: string, file: File) {
   return new Promise<void>((resolve, reject) => {
@@ -20,13 +21,23 @@ function uploadResumableWithTimeout(path: string, file: File) {
       { contentType: file.type || 'application/octet-stream' }
     );
 
+    const timeoutId = window.setTimeout(() => {
+      task.cancel();
+      reject({
+        code: 'storage/canceled',
+        message: `Upload cancelado por timeout (${UPLOAD_TIMEOUT_MS / 1000}s).`,
+      });
+    }, UPLOAD_TIMEOUT_MS);
+
     task.on(
       'state_changed',
       undefined,
       (error) => {
+        window.clearTimeout(timeoutId);
         reject(error);
       },
       () => {
+        window.clearTimeout(timeoutId);
         resolve();
       }
     );

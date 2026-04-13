@@ -1,18 +1,10 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
     match /{allPaths=**} {
-      allow read: if !allPaths.matches('chat-images/.*') || isAuthenticated();
-      allow write: if !allPaths.matches('chat-images/.*') && isAuthenticated();
-    }
-
-    match /chat-images/{allPaths=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      // TEMP DEBUG MODE: abrir acesso para diagnosticar upload/CORS em producao.
+      // IMPORTANTE: reverter para regras com autenticacao apos validacao.
+      allow read, write: if true;
     }
   }
 }

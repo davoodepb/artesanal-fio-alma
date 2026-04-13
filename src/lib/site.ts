@@ -1,4 +1,4 @@
-const DEFAULT_SITE_URL = 'https://fioealma.pt';
+const DEFAULT_SITE_URL = 'https://fio-alma-studio.vercel.app';
 
 function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, '');

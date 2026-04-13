@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { CustomerChat } from '@/components/chat/CustomerChat';
+import { ChatWidgetBoundary } from '@/components/chat/ChatWidgetBoundary';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 interface LayoutProps {
@@ -50,7 +51,9 @@ export function Layout({ children }: LayoutProps) {
         {children}
       </main>
       <Footer />
-      <CustomerChat />
+      <ChatWidgetBoundary>
+        <CustomerChat />
+      </ChatWidgetBoundary>
       <PWAInstallPrompt />
     </div>
   );

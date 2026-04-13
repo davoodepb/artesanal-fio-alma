@@ -78,7 +78,7 @@ const Search = () => {
           'artesanato feito à mão',
           'produtos artesanais',
         ]}
-        canonical={`https://fioealma.pt/search${query ? `?q=${encodeURIComponent(query)}` : ''}`}
+        canonical={`https://fio-alma-studio.vercel.app/search${query ? `?q=${encodeURIComponent(query)}` : ''}`}
       />
       <div className="container py-8">
         {/* Search input */}

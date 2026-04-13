@@ -325,13 +325,20 @@ async function uploadResumable(storage: ReturnType<typeof getStorage>, path: str
       { contentType: contentType || file.type || 'application/octet-stream' }
     );
 
+    const timeoutId = window.setTimeout(() => {
+      task.cancel();
+      reject(new Error('Upload cancelado por timeout (45s).'));
+    }, 45_000);
+
     task.on(
       'state_changed',
       undefined,
       (error) => {
+        window.clearTimeout(timeoutId);
         reject(error);
       },
       () => {
+        window.clearTimeout(timeoutId);
         resolve();
       }
     );

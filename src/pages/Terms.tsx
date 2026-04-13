@@ -8,7 +8,7 @@ const Terms = () => {
       <SEOHead
         title="Termos e Condições | Fio & Alma Studio"
         description="Termos e condições de utilização da loja online Fio & Alma Studio. Conheça as regras de compra, entrega e pagamento dos nossos produtos artesanais."
-        canonical="https://fioealma.pt/terms"
+        canonical="https://fio-alma-studio.vercel.app/terms"
       />
       <div className="container py-10 max-w-3xl prose prose-slate dark:prose-invert mx-auto">
         <h1 className="font-serif text-3xl font-bold mb-2">Termos e Condições</h1>

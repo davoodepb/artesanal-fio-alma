@@ -565,6 +565,11 @@ export function CustomerChat() {
     setIsOpen(true);
   };
 
+  const retryChatInitialization = async () => {
+    if (!user) return;
+    await fetchOrCreateConversation();
+  };
+
   return (
     <>
       {/* Floating chat button */}
@@ -599,6 +604,20 @@ export function CustomerChat() {
               </div>
             ) : (
               <>
+                {chatInitError ? (
+                  <div className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-sm font-medium text-amber-900">Erro ao iniciar chat</p>
+                    <p className="text-xs text-amber-800 mt-1">{chatInitError}</p>
+                    <div className="mt-3 flex gap-2">
+                      <Button size="sm" variant="outline" onClick={retryChatInitialization}>
+                        Tentar novamente
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setIsOpen(false)}>
+                        Fechar
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <div ref={scrollAreaWrapperRef} className="relative flex-1 min-h-0">
                 <ScrollArea className="h-full p-4 touch-pan-y overscroll-contain">
                   <div className="space-y-4">

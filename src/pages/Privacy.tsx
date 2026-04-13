@@ -8,7 +8,7 @@ const Privacy = () => {
       <SEOHead
         title="Política de Privacidade | Fio & Alma Studio"
         description="Política de privacidade da Fio & Alma Studio. Saiba como recolhemos, usamos e protegemos os seus dados pessoais em conformidade com o RGPD."
-        canonical="https://fioealma.pt/privacy"
+        canonical="https://fio-alma-studio.vercel.app/privacy"
       />
       <div className="container py-10 max-w-3xl prose prose-slate dark:prose-invert mx-auto">
         <h1 className="font-serif text-3xl font-bold mb-2">Política de Privacidade</h1>

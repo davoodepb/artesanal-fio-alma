@@ -142,13 +142,13 @@ const Blog = () => {
           'artesanato sustentavel',
           'tendencias artesanato',
         ]}
-        canonical="https://fioealma.pt/blog"
+        canonical="https://fio-alma-studio.vercel.app/blog"
         structuredData={{
           "@context": "https://schema.org",
           "@type": "Blog",
           name: "Blog Fio & Alma Studio",
           description: "Blog de artesanato com dicas, inspiração e tendências sobre produtos feitos à mão.",
-          url: "https://fioealma.pt/blog",
+          url: "https://fio-alma-studio.vercel.app/blog",
           publisher: {
             "@type": "Organization",
             name: "Fio & Alma Studio",

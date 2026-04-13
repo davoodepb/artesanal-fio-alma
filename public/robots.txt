@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://fioealma.pt/sitemap.xml
+Sitemap: https://fio-alma-studio.vercel.app/sitemap.xml

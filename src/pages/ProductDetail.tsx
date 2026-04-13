@@ -105,7 +105,7 @@ const ProductDetail = () => {
           product.name,
           product.category?.name || 'categoria artesanal',
         ]}
-        canonical={`https://fioealma.pt/product/${product.slug}`}
+        canonical={`https://fio-alma-studio.vercel.app/product/${product.slug}`}
         ogImage={product.images[0] || '/icons/icon-512.png'}
         ogType="product"
         structuredData={{
@@ -114,7 +114,7 @@ const ProductDetail = () => {
           name: product.name,
           description: product.description || `Peça artesanal feita à mão: ${product.name}`,
           image: product.images,
-          url: `https://fioealma.pt/product/${product.slug}`,
+          url: `https://fio-alma-studio.vercel.app/product/${product.slug}`,
           offers: {
             "@type": "Offer",
             price: product.price,
