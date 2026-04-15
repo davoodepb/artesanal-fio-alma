@@ -74,7 +74,7 @@ export function SEOHead({
     updateMeta('twitter:description', description);
     updateMeta('twitter:image', absoluteImage);
     updateMeta('twitter:url', canonicalUrl);
-    updateMeta('robots', 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
+    updateMeta('robots', 'index, follow');
     updateMeta('googlebot', 'index, follow');
 
     // Canonical URL

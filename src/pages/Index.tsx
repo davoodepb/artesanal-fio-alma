@@ -28,24 +28,20 @@ const Index = () => {
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const homepageKeywords = [
     'artesanato',
-    'artesanato português',
-    'loja de artesanato',
-    'artesanato online',
-    'artesanato feito à mão',
-    'produtos artesanais',
-    'artesanato Portugal',
-    'Fio e Alma Studio',
-    'handmade',
-    'croché',
+    'feito à mão',
+    'crochê',
     'cerâmica',
     'bordados',
+    'bijuteria artesanal',
+    'costura criativa',
+    'produtos artesanais Portugal',
   ];
 
   return (
     <Layout>
       <SEOHead
-        title="Fio e Alma Studio | Artesanato feito à mão"
-        description="Fio e Alma Studio — artesanato feito à mão com amor e detalhe. Peças únicas, personalizadas e criadas artesanalmente em Portugal."
+        title="Fio e Alma Studio | Artesanato Feito à Mão, Crochê, Cerâmica e Bijuteria"
+        description="Descubra peças únicas de artesanato feito à mão na Fio e Alma Studio. Crochê, cerâmica, bordados, costura criativa e bijuteria artesanal com amor e autenticidade."
         keywords={homepageKeywords}
         canonical="https://fio-alma-studio.vercel.app/"
         structuredData={{
@@ -81,7 +77,7 @@ const Index = () => {
         }}
       />
       <section className="sr-only" aria-label="SEO headings">
-        <h1>Fio e Alma Studio - Artesanato Feito à Mão</h1>
+        <h1>Artesanato Feito à Mão com Alma</h1>
         <h2>Categorias de Artesanato</h2>
         <h3>Croché</h3>
         <h3>Cerâmica</h3>
@@ -125,8 +121,12 @@ const Index = () => {
           <div className="max-w-3xl mx-auto text-center space-y-4">
             <h2 className="font-serif text-2xl md:text-3xl font-bold text-foreground">Categorias de Artesanato</h2>
             <p className="text-muted-foreground leading-relaxed">
-              Fio e Alma Studio é uma loja online dedicada ao artesanato feito à mão. Descubra peças únicas de croché,
-              cerâmica, bordados, costura criativa e bijuteria artesanal para oferecer ou decorar com autenticidade.
+              Na Fio e Alma Studio, cada criação nasce do cuidado com os materiais, do respeito pelas técnicas tradicionais
+              e de uma vontade genuína de criar peças com identidade. Trabalhamos com crochê, cerâmica, bordados,
+              costura criativa e bijuteria artesanal para oferecer produtos que não são feitos em massa, mas sim pensados
+              para durar e emocionar. Se procura presentes com significado ou elementos de decoração com personalidade,
+              aqui encontra coleções com história, acabamento artesanal e autenticidade portuguesa. O nosso compromisso é
+              unir beleza, utilidade e alma em cada detalhe, para que cada peça leve consigo a sensação de algo verdadeiramente único.
             </p>
           </div>
         </div>

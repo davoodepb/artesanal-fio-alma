@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { ensureUserDocument, updatePresence } from '@/lib/firebase/userService';
 
 const PING_INTERVAL_MS = 60_000; // Update last_seen every 60 seconds
 
 /**
- * Hook that periodically updates the authenticated user's `last_seen` timestamp
- * in the profiles table. This is used by admins to see who is online.
+ * Hook that updates user presence in Firestore users collection.
  */
 export function usePresence() {
   const { user } = useAuth();
@@ -21,32 +20,51 @@ export function usePresence() {
       return;
     }
 
-    const ping = async () => {
+    const pingOnline = async () => {
       try {
-        await supabase.rpc('update_last_seen');
+        await ensureUserDocument(user.raw);
+        await updatePresence(true);
+      } catch {
+        // Silently ignore — presence is non-critical
+      }
+    };
+
+    const pingOffline = async () => {
+      try {
+        await updatePresence(false);
       } catch {
         // Silently ignore — presence is non-critical
       }
     };
 
     // Ping immediately, then on interval
-    ping();
-    intervalRef.current = setInterval(ping, PING_INTERVAL_MS);
+    pingOnline();
+    intervalRef.current = setInterval(pingOnline, PING_INTERVAL_MS);
 
     // Also ping on visibility change (user returns to tab)
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        ping();
+        pingOnline();
+      } else {
+        pingOffline();
       }
     };
+
+    const handleBeforeUnload = () => {
+      pingOffline();
+    };
+
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      pingOffline();
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [user]);
 }

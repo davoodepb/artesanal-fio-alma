@@ -4,8 +4,44 @@ import { ArrowRight, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 
+function normalizeAssetUrl(rawUrl: string): string {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return '';
+
+  if (/^https?:\/\//i.test(trimmed) || /^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('./')) {
+    return `/${trimmed.slice(2)}`;
+  }
+
+  if (trimmed.startsWith('../')) {
+    return `/${trimmed.replace(/^\.\.\//, '')}`;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  return `/${trimmed}`;
+}
+
+function withCacheBust(url: string, version: string | number): string {
+  const safe = normalizeAssetUrl(url);
+  if (!safe) return '';
+
+  const v = String(version || '').trim();
+  if (!v) return safe;
+
+  const separator = safe.includes('?') ? '&' : '?';
+  return `${safe}${separator}v=${encodeURIComponent(v)}`;
+}
+
 export function HeroSection() {
   const [bgImage, setBgImage] = useState('');
+  const [bgVersion, setBgVersion] = useState<string>('');
+  const [bgLoadFailed, setBgLoadFailed] = useState(false);
 
   useEffect(() => {
     const fetchBg = async () => {
@@ -14,12 +50,21 @@ export function HeroSection() {
         .select('value')
         .eq('key', 'site_background')
         .maybeSingle();
-      if (data?.value && typeof data.value === 'object' && 'image_url' in (data.value as any)) {
-        setBgImage((data.value as any).image_url || '');
+
+      if (data?.value && typeof data.value === 'object') {
+        const value = data.value as Record<string, unknown>;
+        const imageUrl = typeof value.image_url === 'string' ? value.image_url : '';
+        const imageVersion = value.image_version || value.updated_at || '';
+
+        setBgImage(normalizeAssetUrl(imageUrl));
+        setBgVersion(String(imageVersion || ''));
+        setBgLoadFailed(false);
       }
     };
     fetchBg();
   }, []);
+
+  const effectiveBgUrl = withCacheBust(bgImage, bgVersion);
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-secondary via-background to-accent/20">
@@ -92,28 +137,11 @@ export function HeroSection() {
             
             <div className="relative aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-secondary to-accent/20 border-2 border-craft/20 shadow-xl">
               <img
-                src={bgImage || '/placeholder.svg'}
+                src={!bgLoadFailed && effectiveBgUrl ? effectiveBgUrl : '/placeholder.svg'}
                 alt="Costura artesanal feita à mão"
                 className="w-full h-full object-cover"
+                onError={() => setBgLoadFailed(true)}
               />
-              
-              <div className="absolute top-6 right-6 bg-card/95 backdrop-blur rounded-2xl p-4 shadow-lg border border-craft/20 animate-bounce-subtle">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">🧵</span>
-                  <p className="text-sm font-medium text-foreground">Linha & Agulha</p>
-                </div>
-              </div>
-              
-              <div className="absolute bottom-6 left-6 bg-card/95 backdrop-blur rounded-2xl p-4 shadow-lg border border-craft/20">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">✨</span>
-                  <p className="text-sm font-medium text-foreground">Peça Exclusiva</p>
-                </div>
-              </div>
-
-              <svg className="absolute bottom-0 left-0 w-full h-20 opacity-50" viewBox="0 0 400 80" preserveAspectRatio="none">
-                <path d="M0,40 Q100,10 200,40 T400,40" fill="none" stroke="hsl(var(--craft))" strokeWidth="2" strokeDasharray="8,4" />
-              </svg>
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@
 const MAX_DIMENSION = 1200; // Max width or height in pixels
 const THUMB_DIMENSION = 400; // Thumbnail size
 const QUALITY = 0.85; // JPEG/WEBP quality
+const TARGET_MAX_BYTES = 500 * 1024;
 const IMAGE_PROCESS_TIMEOUT_MS = 15000;
 
 /**
@@ -106,6 +107,70 @@ export function resizeImage(
   });
 }
 
+function recompressImage(file: File): Promise<File> {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/') || file.type === 'image/svg+xml' || file.type === 'image/png') {
+      resolve(file);
+      return;
+    }
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = async () => {
+      URL.revokeObjectURL(url);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0);
+
+      let bestBlob: Blob | null = null;
+      let currentQuality = 0.82;
+
+      for (let i = 0; i < 6; i += 1) {
+        const blob = await new Promise<Blob | null>((blobResolve) => {
+          canvas.toBlob(blobResolve, 'image/webp', currentQuality);
+        });
+
+        if (!blob) continue;
+        bestBlob = blob;
+        if (blob.size <= TARGET_MAX_BYTES) break;
+        currentQuality = Math.max(0.45, currentQuality - 0.08);
+      }
+
+      if (!bestBlob || bestBlob.size >= file.size) {
+        resolve(file);
+        return;
+      }
+
+      const recompressed = new File(
+        [bestBlob],
+        file.name.replace(/\.[^.]+$/, '.webp'),
+        { type: 'image/webp' }
+      );
+
+      resolve(recompressed);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+
+    img.src = url;
+  });
+}
+
 /**
  * Create a thumbnail from a file.
  */
@@ -122,7 +187,11 @@ export function createThumbnail(
  */
 export async function processImageForUpload(file: File): Promise<File> {
   return Promise.race<File>([
-    resizeImage(file, MAX_DIMENSION, QUALITY),
+    (async () => {
+      const resized = await resizeImage(file, MAX_DIMENSION, QUALITY);
+      if (resized.size <= TARGET_MAX_BYTES) return resized;
+      return recompressImage(resized);
+    })(),
     new Promise<File>((resolve) => {
       window.setTimeout(() => resolve(file), IMAGE_PROCESS_TIMEOUT_MS);
     }),

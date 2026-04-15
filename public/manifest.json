@@ -1,12 +1,12 @@
 {
-  "name": "Fio & Alma Studio - Costura Artesanal",
+  "name": "Fio e Alma Studio",
   "short_name": "Fio & Alma",
-  "description": "Peças únicas de costura artesanal, feitas à mão com amor e dedicação. Bordados, roupas e acessórios exclusivos.",
+  "description": "Artesanato feito à mão: crochê, cerâmica, bijuteria e peças únicas.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#FAF7F2",
-  "theme_color": "#E86A6A",
+  "background_color": "#ffffff",
+  "theme_color": "#c49a6c",
   "orientation": "portrait-primary",
   "id": "/",
   "icons": [

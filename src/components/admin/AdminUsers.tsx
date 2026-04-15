@@ -1,173 +1,152 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table';
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel,
-  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import {
-  Loader2, Users, Search, MoreVertical, Ban, Unlock, Trash2,
-  AlertTriangle, Circle, Clock,
+  Loader2,
+  Users,
+  Search,
+  MoreVertical,
+  Ban,
+  Unlock,
+  Circle,
+  Clock,
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { format, formatDistanceToNow } from 'date-fns';
 import { pt } from 'date-fns/locale';
+import { setUserBlocked, subscribeUsers } from '@/lib/firebase/userService';
 
-interface UserProfile {
+type TimestampLike = { toDate?: () => Date; seconds?: number };
+
+interface UserDoc {
   id: string;
-  user_id: string;
-  full_name: string | null;
-  email: string | null;
-  phone: string | null;
-  is_blocked: boolean;
-  blocked_at: string | null;
-  last_seen: string | null;
-  created_at: string;
-  role: string;
+  uid?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  isBlocked?: boolean;
+  isOnline?: boolean;
+  lastSeen?: TimestampLike | string | number | null;
+  updatedAt?: TimestampLike | string | number | null;
 }
 
-const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+function toDate(value: UserDoc['lastSeen']): Date | null {
+  if (!value) return null;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
 
-function isOnline(lastSeen: string | null): boolean {
-  if (!lastSeen) return false;
-  return Date.now() - new Date(lastSeen).getTime() < ONLINE_THRESHOLD_MS;
+  const ts = value as TimestampLike;
+  if (typeof ts.toDate === 'function') return ts.toDate();
+  if (typeof ts.seconds === 'number') return new Date(ts.seconds * 1000);
+  return null;
+}
+
+function safeDateText(value: UserDoc['lastSeen'], fallback = '—') {
+  const parsed = toDate(value);
+  if (!parsed) return fallback;
+  return format(parsed, 'd MMM yyyy', { locale: pt });
+}
+
+function safeRelativeText(value: UserDoc['lastSeen'], fallback = 'Nunca') {
+  const parsed = toDate(value);
+  if (!parsed) return fallback;
+  return formatDistanceToNow(parsed, { addSuffix: true, locale: pt });
 }
 
 export function AdminUsers() {
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
+  const [users, setUsers] = useState<UserDoc[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'online' | 'blocked'>('all');
-
-  // Dialog state
   const [blockTarget, setBlockTarget] = useState<{ userId: string; name: string; block: boolean } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ userId: string; name: string } | null>(null);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
+  useEffect(() => {
+    const unsubscribe = subscribeUsers(
+      (rows: UserDoc[]) => {
+        const sorted = [...(rows || [])].sort((a, b) => {
+          const aTime = toDate(a.updatedAt || a.lastSeen)?.getTime() || 0;
+          const bTime = toDate(b.updatedAt || b.lastSeen)?.getTime() || 0;
+          return bTime - aTime;
+        });
 
-      if (error) throw error;
+        setUsers(sorted);
+        setIsLoading(false);
+      },
+      (error: unknown) => {
+        console.error('Erro ao carregar utilizadores:', error);
+        toast.error('Erro ao carregar utilizadores.');
+        setIsLoading(false);
+      }
+    );
 
-      // Fetch roles for all users
-      const userIds = (profiles || []).map(p => p.user_id);
-      const { data: roles } = await supabase
-        .from('user_roles')
-        .select('user_id, role')
-        .in('user_id', userIds);
-
-      const roleMap: Record<string, string> = {};
-      (roles || []).forEach(r => {
-        // If user has admin role, mark as admin; otherwise customer
-        if (r.role === 'admin') roleMap[r.user_id] = 'admin';
-        else if (!roleMap[r.user_id]) roleMap[r.user_id] = r.role;
-      });
-
-      const enriched: UserProfile[] = (profiles || []).map(p => ({
-        id: p.id,
-        user_id: p.user_id,
-        full_name: p.full_name,
-        email: (p as any).email || null,
-        phone: p.phone,
-        is_blocked: (p as any).is_blocked || false,
-        blocked_at: (p as any).blocked_at || null,
-        last_seen: (p as any).last_seen || null,
-        created_at: p.created_at,
-        role: roleMap[p.user_id] || 'customer',
-      }));
-
-      setUsers(enriched);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      toast.error('Erro ao carregar utilizadores');
-    } finally {
-      setIsLoading(false);
-    }
+    return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    fetchUsers();
-    // Refresh every 30 seconds for presence updates
-    const interval = setInterval(fetchUsers, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchUsers]);
-
-  // Filter and search
-  useEffect(() => {
+  const filteredUsers = useMemo(() => {
     let result = users;
 
     if (filter === 'online') {
-      result = result.filter(u => isOnline(u.last_seen));
+      result = result.filter((u) => Boolean(u.isOnline));
     } else if (filter === 'blocked') {
-      result = result.filter(u => u.is_blocked);
+      result = result.filter((u) => Boolean(u.isBlocked));
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(u =>
-        (u.full_name?.toLowerCase().includes(q)) ||
-        (u.email?.toLowerCase().includes(q)) ||
-        (u.phone?.toLowerCase().includes(q))
-      );
+      result = result.filter((u) => {
+        const name = String(u.name || '').toLowerCase();
+        const email = String(u.email || '').toLowerCase();
+        return name.includes(q) || email.includes(q);
+      });
     }
 
-    setFilteredUsers(result);
+    return result;
   }, [users, filter, searchQuery]);
 
-  const onlineCount = users.filter(u => isOnline(u.last_seen)).length;
-  const blockedCount = users.filter(u => u.is_blocked).length;
-
-  // ── Actions ────────────────────────────────────────────
+  const onlineCount = users.filter((u) => Boolean(u.isOnline)).length;
+  const blockedCount = users.filter((u) => Boolean(u.isBlocked)).length;
 
   const handleBlockUser = async () => {
     if (!blockTarget) return;
+
     try {
-      const { error } = await supabase.rpc('admin_block_user', {
-        target_user_id: blockTarget.userId,
-        block: blockTarget.block,
-      });
-      if (error) throw error;
+      await setUserBlocked(blockTarget.userId, blockTarget.block);
       toast.success(blockTarget.block ? 'Utilizador bloqueado' : 'Utilizador desbloqueado');
-      await fetchUsers();
     } catch (error: any) {
-      console.error('Error blocking user:', error);
-      toast.error('Erro: ' + (error.message || ''));
+      console.error('Erro ao atualizar bloqueio:', error);
+      toast.error(error?.message || 'Erro ao atualizar bloqueio.');
     } finally {
       setBlockTarget(null);
-    }
-  };
-
-  const handleDeleteUser = async () => {
-    if (!deleteTarget) return;
-    try {
-      const { error } = await supabase.rpc('admin_delete_user', {
-        target_user_id: deleteTarget.userId,
-      });
-      if (error) throw error;
-      toast.success('Utilizador eliminado');
-      await fetchUsers();
-    } catch (error: any) {
-      console.error('Error deleting user:', error);
-      toast.error('Erro: ' + (error.message || ''));
-    } finally {
-      setDeleteTarget(null);
     }
   };
 
@@ -182,11 +161,10 @@ export function AdminUsers() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-serif font-bold text-foreground">Gestão de Utilizadores</h1>
-        <p className="text-muted-foreground">Ver, bloquear ou remover utilizadores registados</p>
+        <h1 className="text-2xl font-serif font-bold text-foreground">Gestao de Utilizadores</h1>
+        <p className="text-muted-foreground">Ver estado online e bloquear utilizadores abusivos</p>
       </div>
 
-      {/* Stats cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="cursor-pointer hover:ring-2 ring-primary/20 transition-all" onClick={() => setFilter('all')}>
           <CardContent className="p-4 flex items-center gap-4">
@@ -199,6 +177,7 @@ export function AdminUsers() {
             </div>
           </CardContent>
         </Card>
+
         <Card className="cursor-pointer hover:ring-2 ring-green-500/20 transition-all" onClick={() => setFilter('online')}>
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
@@ -210,6 +189,7 @@ export function AdminUsers() {
             </div>
           </CardContent>
         </Card>
+
         <Card className="cursor-pointer hover:ring-2 ring-red-500/20 transition-all" onClick={() => setFilter('blocked')}>
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
@@ -223,12 +203,11 @@ export function AdminUsers() {
         </Card>
       </div>
 
-      {/* Search and filter */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Pesquisar por nome, email ou telefone..."
+            placeholder="Pesquisar por nome ou email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -236,19 +215,13 @@ export function AdminUsers() {
         </div>
         <div className="flex gap-2">
           {(['all', 'online', 'blocked'] as const).map((f) => (
-            <Button
-              key={f}
-              variant={filter === f ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter(f)}
-            >
+            <Button key={f} variant={filter === f ? 'default' : 'outline'} size="sm" onClick={() => setFilter(f)}>
               {f === 'all' ? 'Todos' : f === 'online' ? 'Online' : 'Bloqueados'}
             </Button>
           ))}
         </div>
       </div>
 
-      {/* Users table */}
       <Card>
         <CardContent className="p-0">
           <ScrollArea className="max-h-[600px]">
@@ -258,8 +231,8 @@ export function AdminUsers() {
                   <TableHead>Utilizador</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Estado</TableHead>
-                  <TableHead>Último acesso</TableHead>
-                  <TableHead>Registado em</TableHead>
+                  <TableHead>Ultimo acesso</TableHead>
+                  <TableHead>Atualizado em</TableHead>
                   <TableHead>Cargo</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
@@ -273,33 +246,36 @@ export function AdminUsers() {
                   </TableRow>
                 ) : (
                   filteredUsers.map((u) => {
-                    const online = isOnline(u.last_seen);
+                    const isOnline = Boolean(u.isOnline);
+                    const uid = String(u.uid || u.id);
+                    const role = String(u.role || 'user').toLowerCase();
+                    const name = String(u.name || 'Sem nome');
+                    const email = String(u.email || '—');
+
                     return (
-                      <TableRow key={u.id} className={u.is_blocked ? 'opacity-60' : ''}>
+                      <TableRow key={u.id} className={u.isBlocked ? 'opacity-60' : ''}>
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <div className="relative">
                               <Avatar className="h-9 w-9">
                                 <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                                  {u.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                                  {name.charAt(0).toUpperCase() || 'U'}
                                 </AvatarFallback>
                               </Avatar>
-                              {online && (
+                              {isOnline && (
                                 <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-green-500 border-2 border-background" />
                               )}
                             </div>
-                            <span className="font-medium">{u.full_name || 'Sem nome'}</span>
+                            <span className="font-medium">{name}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {u.email || '—'}
-                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">{email}</TableCell>
                         <TableCell>
-                          {u.is_blocked ? (
+                          {u.isBlocked ? (
                             <Badge variant="destructive" className="gap-1">
                               <Ban className="h-3 w-3" /> Bloqueado
                             </Badge>
-                          ) : online ? (
+                          ) : isOnline ? (
                             <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 gap-1">
                               <Circle className="h-2 w-2 fill-current" /> Online
                             </Badge>
@@ -309,21 +285,13 @@ export function AdminUsers() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {u.last_seen
-                            ? formatDistanceToNow(new Date(u.last_seen), { addSuffix: true, locale: pt })
-                            : 'Nunca'}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {format(new Date(u.created_at), "d MMM yyyy", { locale: pt })}
+                        <TableCell className="text-sm text-muted-foreground">{safeRelativeText(u.lastSeen, 'Nunca')}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{safeDateText(u.updatedAt || u.lastSeen, '—')}</TableCell>
+                        <TableCell>
+                          <Badge variant={role === 'admin' ? 'default' : 'outline'}>{role === 'admin' ? 'Admin' : 'Utilizador'}</Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>
-                            {u.role === 'admin' ? 'Admin' : 'Cliente'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {u.role !== 'admin' && (
+                          {role !== 'admin' && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -331,22 +299,15 @@ export function AdminUsers() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {u.is_blocked ? (
-                                  <DropdownMenuItem onClick={() => setBlockTarget({ userId: u.user_id, name: u.full_name || u.email || '', block: false })}>
+                                {u.isBlocked ? (
+                                  <DropdownMenuItem onClick={() => setBlockTarget({ userId: uid, name, block: false })}>
                                     <Unlock className="h-4 w-4 mr-2" /> Desbloquear
                                   </DropdownMenuItem>
                                 ) : (
-                                  <DropdownMenuItem onClick={() => setBlockTarget({ userId: u.user_id, name: u.full_name || u.email || '', block: true })}>
+                                  <DropdownMenuItem onClick={() => setBlockTarget({ userId: uid, name, block: true })}>
                                     <Ban className="h-4 w-4 mr-2" /> Bloquear
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() => setDeleteTarget({ userId: u.user_id, name: u.full_name || u.email || '' })}
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" /> Eliminar conta
-                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           )}
@@ -361,23 +322,16 @@ export function AdminUsers() {
         </CardContent>
       </Card>
 
-      {/* ── Confirmation Dialogs ────────────────────────── */}
-
-      {/* Block / Unblock */}
       <AlertDialog open={!!blockTarget} onOpenChange={() => setBlockTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              {blockTarget?.block ? (
-                <><Ban className="h-5 w-5 text-destructive" /> Bloquear utilizador</>
-              ) : (
-                <><Unlock className="h-5 w-5 text-green-500" /> Desbloquear utilizador</>
-              )}
+              {blockTarget?.block ? <><Ban className="h-5 w-5 text-destructive" /> Bloquear utilizador</> : <><Unlock className="h-5 w-5 text-green-500" /> Desbloquear utilizador</>}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {blockTarget?.block
-                ? `Tem a certeza que deseja bloquear "${blockTarget?.name}"? O utilizador não poderá aceder ao site.`
-                : `Deseja desbloquear "${blockTarget?.name}"? O utilizador poderá voltar a aceder ao site.`
+                ? `Tem a certeza que deseja bloquear "${blockTarget?.name}"?`
+                : `Deseja desbloquear "${blockTarget?.name}"?`
               }
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -388,31 +342,6 @@ export function AdminUsers() {
               className={blockTarget?.block ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
             >
               {blockTarget?.block ? 'Bloquear' : 'Desbloquear'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Delete user */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Eliminar conta de utilizador
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem a certeza que deseja eliminar permanentemente a conta de "{deleteTarget?.name}"?
-              Todos os dados do utilizador (perfil, conversas, etc.) serão apagados. Esta ação <strong>não pode ser revertida</strong>.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteUser}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Eliminar permanentemente
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

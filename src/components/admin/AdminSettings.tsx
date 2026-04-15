@@ -10,6 +10,29 @@ import { ImageUpload } from './ImageUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+function normalizeAssetUrl(rawUrl: string): string {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return '';
+
+  if (/^https?:\/\//i.test(trimmed) || /^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('./')) {
+    return `/${trimmed.slice(2)}`;
+  }
+
+  if (trimmed.startsWith('../')) {
+    return `/${trimmed.replace(/^\.\.\//, '')}`;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  return `/${trimmed}`;
+}
+
 export function AdminSettings() {
   const { theme, setTheme } = useTheme();
   const [backgroundImage, setBackgroundImage] = useState('');
@@ -28,8 +51,10 @@ export function AdminSettings() {
         .select('value')
         .eq('key', 'site_background')
         .maybeSingle();
-      if (data?.value && typeof data.value === 'object' && 'image_url' in (data.value as any)) {
-        setBackgroundImage((data.value as any).image_url || '');
+      if (data?.value && typeof data.value === 'object') {
+        const value = data.value as Record<string, unknown>;
+        const savedUrl = typeof value.image_url === 'string' ? value.image_url : '';
+        setBackgroundImage(normalizeAssetUrl(savedUrl));
       }
 
       const { data: socialData } = await supabase
@@ -64,6 +89,13 @@ export function AdminSettings() {
   const handleSaveBackground = async () => {
     setIsSaving(true);
     try {
+      const normalized = normalizeAssetUrl(backgroundImage);
+      const payload = {
+        image_url: normalized,
+        image_version: Date.now(),
+        updated_at: new Date().toISOString(),
+      };
+
       const { data: existing } = await supabase
         .from('site_settings')
         .select('id')
@@ -73,13 +105,15 @@ export function AdminSettings() {
       if (existing) {
         await supabase
           .from('site_settings')
-          .update({ value: { image_url: backgroundImage } as any })
+          .update({ value: payload as any })
           .eq('key', 'site_background');
       } else {
         await supabase
           .from('site_settings')
-          .insert({ key: 'site_background', value: { image_url: backgroundImage } as any });
+          .insert({ key: 'site_background', value: payload as any });
       }
+
+      setBackgroundImage(normalized);
       toast.success('Fundo do site guardado!');
     } catch {
       toast.error('Erro ao guardar');

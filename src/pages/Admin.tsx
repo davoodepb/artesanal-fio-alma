@@ -77,7 +77,7 @@ const Admin = () => {
         supabase.from('products').select('id', { count: 'exact' }),
         supabase.from('orders').select('id,total', { count: 'exact' }),
         supabase.from('reviews').select('id', { count: 'exact' }).eq('is_approved', false),
-        supabase.from('chat_messages').select('id', { count: 'exact' }).eq('is_read', false).eq('sender_role', 'customer'),
+        supabase.from('messages').select('id', { count: 'exact', head: true }).eq('senderRole', 'customer'),
         supabase.from('orders').select('id', { count: 'exact' }).eq('status', 'pending'),
         supabase.from('profiles').select('id', { count: 'exact', head: true }),
         supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('last_seen', activeSince),
