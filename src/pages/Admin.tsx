@@ -67,8 +67,10 @@ const Admin = () => {
     newUsers: 0,
   });
 
+  const isAccessUnlocked = sessionStorage.getItem('admin_access_unlocked') === 'true';
   const isSessionAuthenticated = !!sessionStorage.getItem('admin_authenticated');
-  const shouldShowLogin = !authLoading && (!user || !isAdmin || !isSessionAuthenticated);
+  const canAttemptAdminLogin = isAccessUnlocked || isSessionAuthenticated;
+  const shouldShowLogin = !authLoading && canAttemptAdminLogin && (!user || !isAdmin || !isSessionAuthenticated);
 
   const fetchStats = async () => {
     try {
@@ -77,7 +79,7 @@ const Admin = () => {
         supabase.from('products').select('id', { count: 'exact' }),
         supabase.from('orders').select('id,total', { count: 'exact' }),
         supabase.from('reviews').select('id', { count: 'exact' }).eq('is_approved', false),
-        supabase.from('messages').select('id', { count: 'exact', head: true }).eq('senderRole', 'customer'),
+        supabase.from('chat_messages').select('id', { count: 'exact' }).eq('is_read', false).eq('sender_role', 'customer'),
         supabase.from('orders').select('id', { count: 'exact' }).eq('status', 'pending'),
         supabase.from('profiles').select('id', { count: 'exact', head: true }),
         supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('last_seen', activeSince),
@@ -120,6 +122,19 @@ const Admin = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!canAttemptAdminLogin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="max-w-md text-center space-y-3">
+          <h1 className="text-2xl font-serif font-bold text-foreground">Acesso Restrito</h1>
+          <p className="text-muted-foreground">
+            Esta area esta protegida. Utilize o desbloqueio pelo logotipo na pagina principal para continuar.
+          </p>
+        </div>
       </div>
     );
   }

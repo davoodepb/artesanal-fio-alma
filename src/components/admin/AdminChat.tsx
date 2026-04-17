@@ -1,280 +1,311 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
-import { Loader2, Send, MessageCircle, ImagePlus, Ban, MoreVertical } from 'lucide-react';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  Loader2, Send, MessageCircle, ImagePlus, Trash2, Ban,
+  XCircle, AlertTriangle, MoreVertical,
+} from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import { listenMessages, sendMessage, sendMessageWithImage } from '@/lib/firebase/chatService';
-import { uploadImage } from '@/lib/firebase/uploadService';
-import { fetchUsersByIds, setUserBlocked } from '@/lib/firebase/userService';
+import { processImageForUpload } from '@/lib/imageUtils';
 
-type FirestoreTimestampLike = {
-  toDate?: () => Date;
-  seconds?: number;
-};
+const IMAGE_PREFIX = '[image:';
+const IMAGE_SUFFIX = ']';
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 
-interface ChatMessage {
-  id: string;
-  text?: string;
-  imageUrl?: string;
-  userId?: string;
-  senderRole?: 'customer' | 'admin' | string;
-  threadId?: string;
-  createdAt?: FirestoreTimestampLike | string | number | null;
+function isImageMessage(content: string): boolean {
+  return content.startsWith(IMAGE_PREFIX) && content.endsWith(IMAGE_SUFFIX);
 }
 
-interface ConversationThread {
-  threadId: string;
-  customerId: string;
-  customerName: string;
-  customerEmail: string;
-  lastMessage: string;
-  lastAt: number;
-  unreadCount: number;
+function extractImageUrl(content: string): string {
+  return content.slice(IMAGE_PREFIX.length, -IMAGE_SUFFIX.length);
 }
 
-function toDateValue(value: ChatMessage['createdAt']): Date | null {
-  if (!value) return null;
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-
-  const timestamp = value as FirestoreTimestampLike;
-  if (typeof timestamp.toDate === 'function') {
-    return timestamp.toDate();
-  }
-
-  if (typeof timestamp.seconds === 'number') {
-    return new Date(timestamp.seconds * 1000);
-  }
-
-  return null;
-}
-
-function getMessageTime(msg: ChatMessage): number {
-  const date = toDateValue(msg.createdAt);
-  return date ? date.getTime() : 0;
-}
-
-function sortMessages(messages: ChatMessage[]): ChatMessage[] {
-  return [...messages].sort((a, b) => {
-    const diff = getMessageTime(a) - getMessageTime(b);
-    if (diff !== 0) return diff;
-    return String(a.id).localeCompare(String(b.id));
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Falha ao converter imagem.'));
+    reader.readAsDataURL(file);
   });
 }
 
-function getSenderRole(msg: ChatMessage): 'customer' | 'admin' {
-  if (msg.senderRole === 'admin') return 'admin';
-  return 'customer';
+function triggerBrowserNotification(title: string, body: string) {
+  if (typeof window === 'undefined' || !("Notification" in window)) return;
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body });
+    return;
+  }
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') {
+        new Notification(title, { body });
+      }
+    });
+  }
 }
 
-function getThreadId(msg: ChatMessage): string {
-  if (msg.threadId) return String(msg.threadId);
-  if (getSenderRole(msg) === 'customer' && msg.userId) return String(msg.userId);
-  return '';
+interface Conversation {
+  id: string;
+  customer_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  customer_name?: string;
+  customer_email?: string;
+  last_message?: string;
+  unread_count?: number;
+}
+
+interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_role: string;
+  content: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export function AdminChat() {
   const { user } = useAuth();
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState<string>('');
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [profilesMap, setProfilesMap] = useState<Record<string, { name: string; email: string }>>({});
-  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [totalUnread, setTotalUnread] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const selectedConvRef = useRef<Conversation | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const allSortedMessages = useMemo(() => sortMessages(messages), [messages]);
+  // Moderation dialogs
+  const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
+  const [clearConvId, setClearConvId] = useState<string | null>(null);
+  const [closeConvId, setCloseConvId] = useState<string | null>(null);
+  const [blockUserId, setBlockUserId] = useState<string | null>(null);
+
+  // Keep ref in sync
+  useEffect(() => {
+    selectedConvRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   useEffect(() => {
-    console.log('AUTH USER:', user ? { id: user.id, email: user.email } : null);
-  }, [user]);
+    fetchConversations();
+    
+    // Subscribe to new messages (once, not on every conversation change)
+    const channel = supabase
+      .channel('admin-chat')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          const eventType = payload.eventType;
+          const newMsg = payload.new as Message;
+          const oldMsg = payload.old as { id?: string; conversation_id?: string };
+          const currentConv = selectedConvRef.current;
+          const affectsCurrentConversation = !!currentConv && (
+            newMsg?.conversation_id === currentConv.id || oldMsg?.conversation_id === currentConv.id
+          );
 
-  useEffect(() => {
-    console.log('Messages:', allSortedMessages);
-  }, [allSortedMessages]);
+          if (eventType === 'INSERT' && affectsCurrentConversation && newMsg) {
+            setMessages(prev => (prev.some((msg) => msg.id === newMsg.id) ? prev : [...prev, newMsg]));
+          }
 
-  const threadMessages = useMemo(() => {
-    if (!selectedThreadId) return [];
-    return allSortedMessages.filter((msg) => getThreadId(msg) === selectedThreadId);
-  }, [allSortedMessages, selectedThreadId]);
+          if (eventType === 'UPDATE' && affectsCurrentConversation && newMsg) {
+            setMessages((prev) => prev.map((msg) => (msg.id === newMsg.id ? newMsg : msg)));
+          }
 
-  const conversations = useMemo<ConversationThread[]>(() => {
-    const grouped = new Map<string, ChatMessage[]>();
+          if (eventType === 'DELETE' && affectsCurrentConversation && oldMsg?.id) {
+            setMessages((prev) => prev.filter((msg) => msg.id !== oldMsg.id));
+          }
 
-    for (const msg of allSortedMessages) {
-      const threadId = getThreadId(msg);
-      if (!threadId) continue;
-
-      const list = grouped.get(threadId) || [];
-      list.push(msg);
-      grouped.set(threadId, list);
-    }
-
-    const rows: ConversationThread[] = [];
-
-    grouped.forEach((threadMsgs, threadId) => {
-      const sorted = sortMessages(threadMsgs);
-      const last = sorted[sorted.length - 1];
-      const profile = profilesMap[threadId] || { name: 'Cliente', email: '' };
-
-      rows.push({
-        threadId,
-        customerId: threadId,
-        customerName: profile.name || 'Cliente',
-        customerEmail: profile.email || '',
-        lastMessage: last?.imageUrl ? '📷 Imagem' : String(last?.text || ''),
-        lastAt: getMessageTime(last),
-        unreadCount: unreadMap[threadId] || 0,
-      });
-    });
-
-    return rows.sort((a, b) => b.lastAt - a.lastAt);
-  }, [allSortedMessages, profilesMap, unreadMap]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    setIsLoading(true);
-    setLoadError(null);
-
-    let initialized = false;
-    const unsubscribe = listenMessages(
-      (incoming: ChatMessage[]) => {
-        const sorted = sortMessages(incoming || []);
-
-        if (!initialized) {
-          initialized = true;
-          knownMessageIdsRef.current = new Set(sorted.map((msg) => msg.id));
-          setMessages(sorted);
-          setIsLoading(false);
-          return;
-        }
-
-        const known = knownMessageIdsRef.current;
-        const newOnes = sorted.filter((msg) => !known.has(msg.id));
-
-        if (newOnes.length > 0) {
-          setUnreadMap((prev) => {
-            const next = { ...prev };
-            for (const msg of newOnes) {
-              const threadId = getThreadId(msg);
-              if (!threadId) continue;
-              if (threadId === selectedThreadId) continue;
-
-              if (getSenderRole(msg) === 'customer') {
-                next[threadId] = (next[threadId] || 0) + 1;
-                toast.info('Nova mensagem de cliente no chat.');
-              }
+          if (eventType === 'INSERT' && newMsg?.sender_role === 'customer') {
+            if (!currentConv || newMsg.conversation_id !== currentConv.id) {
+              toast.info('Nova mensagem de cliente no chat.');
             }
-            return next;
-          });
+            if (document.hidden || !currentConv || newMsg.conversation_id !== currentConv.id) {
+              triggerBrowserNotification('Nova mensagem de cliente', 'Abra o painel de chat para responder.');
+            }
+          }
+
+          // Refresh conversation list for unread counts
+          fetchConversations();
         }
-
-        knownMessageIdsRef.current = new Set(sorted.map((msg) => msg.id));
-        setMessages(sorted);
-        setIsLoading(false);
-      },
-      (error: unknown) => {
-        console.error('Erro ao carregar mensagens admin:', error);
-        setLoadError('Nao foi possivel carregar conversas do chat.');
-        setIsLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user, selectedThreadId]);
-
-  useEffect(() => {
-    if (!selectedThreadId) return;
-    setUnreadMap((prev) => ({ ...prev, [selectedThreadId]: 0 }));
-  }, [selectedThreadId]);
-
-  useEffect(() => {
-    if (conversations.length === 0) return;
-    if (!selectedThreadId) {
-      setSelectedThreadId(conversations[0].threadId);
-    }
-  }, [conversations, selectedThreadId]);
-
-  useEffect(() => {
-    if (threadMessages.length > 0) {
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      });
-    }
-  }, [threadMessages]);
-
-  useEffect(() => {
-    const threadIds = [...new Set(allSortedMessages.map((msg) => getThreadId(msg)).filter(Boolean))];
-    if (threadIds.length === 0) {
-      setProfilesMap({});
-      return;
-    }
-
-    const loadProfiles = async () => {
-      try {
-        const usersMap = await fetchUsersByIds(threadIds);
-        const normalized: Record<string, { name: string; email: string }> = {};
-        for (const threadId of threadIds) {
-          const item = usersMap[threadId] as any;
-          normalized[threadId] = {
-            name: String(item?.name || 'Cliente').trim() || 'Cliente',
-            email: String(item?.email || '').trim(),
-          };
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_conversations' },
+        () => {
+          fetchConversations();
         }
-        setProfilesMap(normalized);
-      } catch {
-        setProfilesMap({});
-      }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
+  }, []);
 
-    loadProfiles();
-  }, [allSortedMessages]);
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      fetchConversations();
+      if (selectedConvRef.current?.id) {
+        fetchMessages(selectedConvRef.current.id);
+      }
+    }, 4000);
 
-  const totalUnread = useMemo(() => Object.values(unreadMap).reduce((sum, v) => sum + Number(v || 0), 0), [unreadMap]);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const fetchConversations = async () => {
+    try {
+      const { data: convData, error } = await supabase
+        .from('chat_conversations')
+        .select('*')
+        .in('status', ['open', 'active'])
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Fetch customer names and last messages
+      const conversationsWithDetails = await Promise.all(
+        (convData || []).map(async (conv) => {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name, email')
+            .eq('user_id', conv.customer_id)
+            .maybeSingle();
+
+          // Get last message
+          const { data: lastMsg } = await supabase
+            .from('chat_messages')
+            .select('content')
+            .eq('conversation_id', conv.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          // Get unread count
+          const { count } = await supabase
+            .from('chat_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+            .eq('is_read', false)
+            .eq('sender_role', 'customer');
+
+          return {
+            ...conv,
+            customer_name: profile?.full_name || 'Cliente',
+            customer_email: (profile as any)?.email || '',
+            last_message: lastMsg?.content || '',
+            unread_count: count || 0,
+          };
+        })
+      );
+
+      setConversations(conversationsWithDetails);
+      setTotalUnread(conversationsWithDetails.reduce((sum, conv) => sum + (conv.unread_count || 0), 0));
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchMessages = async (conversationId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      setMessages(data || []);
+
+      // Mark messages as read
+      await supabase
+        .from('chat_messages')
+        .update({ is_read: true })
+        .eq('conversation_id', conversationId)
+        .eq('sender_role', 'customer')
+        .eq('is_read', false);
+
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+    }
+  };
+
+  const handleSelectConversation = (conversation: Conversation) => {
+    setSelectedConversation(conversation);
+    fetchMessages(conversation.id).then(() => fetchConversations());
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!selectedThreadId || !newMessage.trim()) return;
+    
+    if (!newMessage.trim() || !selectedConversation || !user) return;
 
     setIsSending(true);
     try {
-      await sendMessage(newMessage, {
-        threadId: selectedThreadId,
-        senderRole: 'admin',
-        targetUserId: selectedThreadId,
-      });
+      const { data: insertedMessage, error } = await supabase
+        .from('chat_messages')
+        .insert({
+          conversation_id: selectedConversation.id,
+          sender_id: user.id,
+          sender_role: 'admin',
+          content: newMessage.trim(),
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      if (insertedMessage) {
+        setMessages(prev => (prev.some((msg) => msg.id === insertedMessage.id) ? prev : [...prev, insertedMessage as Message]));
+      }
+
       setNewMessage('');
-    } catch (error: any) {
-      console.error('Erro ao enviar mensagem admin:', error);
-      toast.error(error?.message || 'Erro ao enviar mensagem.');
+      
+      // Update conversation timestamp
+      await supabase
+        .from('chat_conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', selectedConversation.id);
+
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Erro ao enviar mensagem');
     } finally {
       setIsSending(false);
     }
@@ -282,58 +313,150 @@ export function AdminChat() {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedThreadId) return;
+    if (!file || !selectedConversation || !user) return;
 
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     if (!file.type.startsWith('image/')) {
-      toast.error('Selecione um ficheiro de imagem.');
+      toast.error('Por favor, selecione um ficheiro de imagem');
       return;
     }
-
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('A imagem deve ter no maximo 10MB.');
+      toast.error('A imagem deve ter no máximo 10MB');
       return;
     }
 
     setIsUploading(true);
-    setUploadProgress(0);
-
     try {
-      const uploaded = (await uploadImage(file, {
-        folder: `chat-images/admin/${selectedThreadId}`,
-        onProgress: (progress: number) => setUploadProgress(Math.round(progress)),
-      })) as { url: string };
+      const optimized = await processImageForUpload(file);
+      const ext = optimized.name.split('.').pop() || 'webp';
+      const path = `admin/${selectedConversation.id}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
-      await sendMessageWithImage({
-        imageUrl: uploaded.url,
-        threadId: selectedThreadId,
-        senderRole: 'admin',
-        targetUserId: selectedThreadId,
-      });
+      let imageUrl: string | null = null;
+      const { error: uploadError } = await supabase.storage
+        .from('chat-images')
+        .upload(path, optimized, { cacheControl: '3600', upsert: false });
 
-      toast.success('Imagem enviada com sucesso.');
+      if (!uploadError) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('chat-images')
+          .getPublicUrl(path);
+        imageUrl = publicUrl;
+      } else {
+        if (optimized.size > MAX_INLINE_IMAGE_BYTES) {
+          throw new Error('Não foi possível enviar por storage e a imagem é grande para modo compatibilidade (máx. 2MB).');
+        }
+        imageUrl = await fileToDataUrl(optimized);
+        toast.info('Storage indisponível. Imagem enviada em modo compatibilidade.');
+      }
+
+      const { error: msgError } = await supabase
+        .from('chat_messages')
+        .insert({
+          conversation_id: selectedConversation.id,
+          sender_id: user.id,
+          sender_role: 'admin',
+          content: `${IMAGE_PREFIX}${imageUrl}${IMAGE_SUFFIX}`,
+        });
+
+      if (msgError) throw msgError;
+
+      await supabase
+        .from('chat_conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', selectedConversation.id);
+
+      toast.success('Imagem enviada!');
     } catch (error: any) {
-      console.error('Erro ao enviar imagem admin:', error);
-      toast.error(error?.message || 'Erro ao enviar imagem.');
+      console.error('Error uploading image:', error);
+      toast.error(error.message || 'Erro ao enviar imagem');
     } finally {
       setIsUploading(false);
-      setUploadProgress(null);
     }
   };
 
-  const selectedConversation = conversations.find((c) => c.threadId === selectedThreadId) || null;
+  // ── Moderation actions ──────────────────────────────────
 
-  const handleBlockUser = async () => {
-    if (!selectedConversation) return;
-
+  const confirmDeleteMessage = async () => {
+    if (!deleteMessageId) return;
     try {
-      await setUserBlocked(selectedConversation.customerId, true);
-      toast.success('Utilizador bloqueado.');
+      const { error } = await supabase.rpc('admin_delete_chat_message', { message_id: deleteMessageId });
+      if (error) throw error;
+      setMessages(prev => prev.filter(m => m.id !== deleteMessageId));
+      toast.success('Mensagem apagada');
     } catch (error: any) {
-      console.error('Erro ao bloquear utilizador:', error);
-      toast.error(error?.message || 'Erro ao bloquear utilizador.');
+      console.error('Error deleting message:', error);
+      toast.error('Erro ao apagar mensagem: ' + (error.message || ''));
+    } finally {
+      setDeleteMessageId(null);
     }
+  };
+
+  const confirmClearConversation = async () => {
+    if (!clearConvId) return;
+    try {
+      const { error } = await supabase.rpc('admin_clear_conversation', { conv_id: clearConvId });
+      if (error) throw error;
+      if (selectedConversation?.id === clearConvId) {
+        setMessages([]);
+      }
+      toast.success('Histórico da conversa apagado');
+    } catch (error: any) {
+      console.error('Error clearing conversation:', error);
+      toast.error('Erro ao apagar histórico: ' + (error.message || ''));
+    } finally {
+      setClearConvId(null);
+    }
+  };
+
+  const confirmCloseConversation = async () => {
+    if (!closeConvId) return;
+    try {
+      const { error } = await supabase.rpc('admin_close_conversation', { conv_id: closeConvId, new_status: 'closed' });
+      if (error) throw error;
+      if (selectedConversation?.id === closeConvId) {
+        setSelectedConversation(null);
+        setMessages([]);
+      }
+      await fetchConversations();
+      toast.success('Conversa encerrada');
+    } catch (error: any) {
+      console.error('Error closing conversation:', error);
+      toast.error('Erro ao encerrar conversa: ' + (error.message || ''));
+    } finally {
+      setCloseConvId(null);
+    }
+  };
+
+  const confirmBlockUser = async () => {
+    if (!blockUserId) return;
+    try {
+      const { error } = await supabase.rpc('admin_block_user', { target_user_id: blockUserId, block: true });
+      if (error) throw error;
+      toast.success('Utilizador bloqueado');
+    } catch (error: any) {
+      console.error('Error blocking user:', error);
+      toast.error('Erro ao bloquear utilizador: ' + (error.message || ''));
+    } finally {
+      setBlockUserId(null);
+    }
+  };
+
+  const renderMessageContent = (msg: Message) => {
+    if (isImageMessage(msg.content)) {
+      const url = extractImageUrl(msg.content);
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer">
+          <img
+            src={url}
+            alt="Imagem enviada"
+            className="max-w-full max-h-48 rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity"
+            loading="lazy"
+          />
+        </a>
+      );
+    }
+    return <p className="text-sm whitespace-pre-line">{msg.content}</p>;
   };
 
   if (isLoading) {
@@ -355,10 +478,11 @@ export function AdminChat() {
             </Badge>
           )}
         </h1>
-        <p className="text-muted-foreground">Responda aos clientes em tempo real</p>
+        <p className="text-muted-foreground">Responda e modere as conversas dos clientes</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
+        {/* Conversations list */}
         <Card className="lg:col-span-1">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -368,42 +492,80 @@ export function AdminChat() {
           </CardHeader>
           <CardContent className="p-0">
             <ScrollArea className="h-[500px]">
-              {loadError ? (
-                <div className="p-4 text-sm text-destructive">{loadError}</div>
-              ) : conversations.length === 0 ? (
-                <div className="p-4 text-center text-muted-foreground">Nenhuma conversa ainda</div>
+              {conversations.length === 0 ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  Nenhuma conversa ainda
+                </div>
               ) : (
                 conversations.map((conv) => (
-                  <button
-                    key={conv.threadId}
-                    onClick={() => setSelectedThreadId(conv.threadId)}
-                    className={`w-full p-4 text-left border-b hover:bg-muted/50 transition-colors flex items-start gap-3 ${
-                      selectedThreadId === conv.threadId ? 'bg-muted' : ''
+                  <div
+                    key={conv.id}
+                    className={`w-full p-4 text-left border-b hover:bg-muted/50 transition-colors flex items-start gap-2 ${
+                      selectedConversation?.id === conv.id ? 'bg-muted' : ''
                     }`}
                   >
-                    <Avatar className="h-10 w-10 shrink-0">
-                      <AvatarFallback className="bg-primary/10 text-primary">
-                        {conv.customerName?.charAt(0) || 'C'}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium truncate">{conv.customerName}</span>
-                        {conv.unreadCount > 0 && <Badge className="shrink-0">{conv.unreadCount}</Badge>}
+                    <button
+                      onClick={() => handleSelectConversation(conv)}
+                      className="flex items-start gap-3 flex-1 min-w-0 text-left"
+                    >
+                      <Avatar className="h-10 w-10 shrink-0">
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {conv.customer_name?.charAt(0) || 'C'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium truncate">{conv.customer_name}</span>
+                          {conv.unread_count && conv.unread_count > 0 && (
+                            <Badge variant="default" className="ml-2 shrink-0">
+                              {conv.unread_count}
+                            </Badge>
+                          )}
+                        </div>
+                        {conv.customer_email && (
+                          <p className="text-xs text-muted-foreground truncate">{conv.customer_email}</p>
+                        )}
+                        <p className="text-sm text-muted-foreground truncate">
+                          {conv.last_message
+                            ? isImageMessage(conv.last_message) ? '📷 Imagem' : conv.last_message
+                            : 'Sem mensagens'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {format(new Date(conv.updated_at), "d 'de' MMM, HH:mm", { locale: pt })}
+                        </p>
                       </div>
-                      {conv.customerEmail && <p className="text-xs text-muted-foreground truncate">{conv.customerEmail}</p>}
-                      <p className="text-sm text-muted-foreground truncate">{conv.lastMessage || 'Sem mensagens'}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {conv.lastAt ? format(new Date(conv.lastAt), "d 'de' MMM, HH:mm", { locale: pt }) : 'Sem data'}
-                      </p>
-                    </div>
-                  </button>
+                    </button>
+                    {/* Conversation context menu */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setClearConvId(conv.id)}>
+                          <Trash2 className="h-4 w-4 mr-2" /> Apagar histórico
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setCloseConvId(conv.id)}>
+                          <XCircle className="h-4 w-4 mr-2" /> Encerrar conversa
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => setBlockUserId(conv.customer_id)}
+                        >
+                          <Ban className="h-4 w-4 mr-2" /> Bloquear utilizador
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 ))
               )}
             </ScrollArea>
           </CardContent>
         </Card>
 
+        {/* Chat area */}
         <Card className="lg:col-span-2 flex flex-col">
           {selectedConversation ? (
             <>
@@ -412,15 +574,18 @@ export function AdminChat() {
                   <div className="flex items-center gap-3">
                     <Avatar>
                       <AvatarFallback className="bg-primary/10 text-primary">
-                        {selectedConversation.customerName?.charAt(0) || 'C'}
+                        {selectedConversation.customer_name?.charAt(0) || 'C'}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <CardTitle className="text-lg">{selectedConversation.customerName}</CardTitle>
-                      <p className="text-sm text-muted-foreground">{selectedConversation.customerEmail || selectedConversation.customerId}</p>
+                      <CardTitle className="text-lg">{selectedConversation.customer_name}</CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedConversation.customer_email ||
+                          `Conversa iniciada em ${format(new Date(selectedConversation.created_at), "d 'de' MMMM", { locale: pt })}`
+                        }
+                      </p>
                     </div>
                   </div>
-
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="icon">
@@ -428,79 +593,92 @@ export function AdminChat() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={handleBlockUser} className="text-destructive">
-                        <Ban className="h-4 w-4 mr-2" /> Bloquear utilizador
+                      <DropdownMenuItem onClick={() => setClearConvId(selectedConversation.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Apagar histórico
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCloseConvId(selectedConversation.id)}>
+                        <XCircle className="h-4 w-4 mr-2" /> Encerrar conversa
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => setBlockUserId(selectedConversation.customer_id)}
+                      >
+                        <Ban className="h-4 w-4 mr-2" /> Bloquear utilizador
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
               </CardHeader>
-
               <CardContent className="flex-1 p-0 flex flex-col">
                 <ScrollArea className="flex-1 p-4">
                   <div className="space-y-4">
-                    {threadMessages.length === 0 ? (
-                      <div className="text-center text-muted-foreground py-8">Sem mensagens nesta conversa.</div>
-                    ) : (
-                      threadMessages.map((msg) => {
-                        const senderRole = getSenderRole(msg);
-                        const msgDate = toDateValue(msg.createdAt);
-
-                        return (
-                          <div key={msg.id} className={`flex ${senderRole === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`group flex ${
+                          msg.sender_role === 'system'
+                            ? 'justify-center'
+                            : msg.sender_role === 'admin'
+                            ? 'justify-end'
+                            : 'justify-start'
+                        }`}
+                      >
+                        {msg.sender_role === 'system' ? (
+                          <div className="max-w-[85%] rounded-lg px-4 py-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-center relative">
+                            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">🔔 Notificação</p>
+                            <p className="text-sm whitespace-pre-line text-amber-800 dark:text-amber-200">{msg.content}</p>
+                            <p className="text-xs mt-1 text-amber-500 dark:text-amber-400">
+                              {format(new Date(msg.created_at), 'HH:mm')}
+                            </p>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive/10 hover:bg-destructive/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => setDeleteMessageId(msg.id)}
+                            >
+                              <Trash2 className="h-3 w-3 text-destructive" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="relative max-w-[70%]">
                             <div
-                              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                                senderRole === 'admin' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                              className={`rounded-lg px-4 py-2 ${
+                                msg.sender_role === 'admin'
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted'
                               }`}
                             >
-                              <p
-                                className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${
-                                  senderRole === 'admin' ? 'text-primary-foreground/80' : 'text-muted-foreground'
-                                }`}
-                              >
-                                {senderRole === 'admin' ? 'Admin' : 'Cliente'}
+                              <p className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${
+                                msg.sender_role === 'admin' ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                              }`}>
+                                {msg.sender_role === 'admin' ? 'Admin' : 'Cliente'}
                               </p>
-
-                              {msg.imageUrl ? (
-                                <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer">
-                                  <img
-                                    src={msg.imageUrl}
-                                    alt="Imagem enviada"
-                                    className="max-w-full max-h-56 rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                                    loading="lazy"
-                                  />
-                                </a>
-                              ) : (
-                                <p className="text-sm whitespace-pre-line">{msg.text || ''}</p>
-                              )}
-
-                              <p
-                                className={`text-xs mt-1 ${
-                                  senderRole === 'admin' ? 'text-primary-foreground/70' : 'text-muted-foreground'
-                                }`}
-                              >
-                                {msgDate ? format(msgDate, 'HH:mm') : '--:--'}
+                              {renderMessageContent(msg)}
+                              <p className={`text-xs mt-1 ${
+                                msg.sender_role === 'admin' ? 'text-primary-foreground/70' : 'text-muted-foreground'
+                              }`}>
+                                {format(new Date(msg.created_at), 'HH:mm')}
                               </p>
                             </div>
+                            {/* Delete message button (visible on hover) */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`absolute -top-2 h-6 w-6 rounded-full bg-destructive/10 hover:bg-destructive/20 opacity-0 group-hover:opacity-100 transition-opacity ${
+                                msg.sender_role === 'admin' ? '-left-2' : '-right-2'
+                              }`}
+                              onClick={() => setDeleteMessageId(msg.id)}
+                            >
+                              <Trash2 className="h-3 w-3 text-destructive" />
+                            </Button>
                           </div>
-                        );
-                      })
-                    )}
+                        )}
+                      </div>
+                    ))}
                     <div ref={messagesEndRef} />
                   </div>
                 </ScrollArea>
-
-                {isUploading && uploadProgress !== null && (
-                  <div className="px-4 pb-2 space-y-1">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Uploading {uploadProgress}%</span>
-                      <span>{uploadProgress}%</span>
-                    </div>
-                    <Progress value={uploadProgress} className="h-2" />
-                  </div>
-                )}
-
                 <form onSubmit={handleSendMessage} className="p-4 border-t flex gap-2">
                   <input
                     ref={fileInputRef}
@@ -509,7 +687,6 @@ export function AdminChat() {
                     className="hidden"
                     onChange={handleImageUpload}
                   />
-
                   <Button
                     type="button"
                     variant="ghost"
@@ -519,30 +696,124 @@ export function AdminChat() {
                     onClick={() => fileInputRef.current?.click()}
                     title="Enviar imagem"
                   >
-                    {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                    {isUploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" />
+                    )}
                   </Button>
-
                   <Input
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Escreva uma resposta..."
+                    placeholder="Escreva uma mensagem..."
                     disabled={isSending || isUploading}
-                    className="flex-1"
                   />
-
-                  <Button type="submit" disabled={isSending || isUploading || !newMessage.trim()} size="icon">
-                    {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  <Button type="submit" disabled={isSending || isUploading || !newMessage.trim()}>
+                    {isSending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
                   </Button>
                 </form>
               </CardContent>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              Selecione uma conversa para responder
+              <div className="text-center">
+                <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Selecione uma conversa para começar</p>
+              </div>
             </div>
           )}
         </Card>
       </div>
+
+      {/* ── Confirmation Dialogs ────────────────────────── */}
+
+      {/* Delete single message */}
+      <AlertDialog open={!!deleteMessageId} onOpenChange={() => setDeleteMessageId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Apagar mensagem
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem a certeza que deseja apagar esta mensagem? Esta ação não pode ser revertida.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteMessage} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Clear conversation history */}
+      <AlertDialog open={!!clearConvId} onOpenChange={() => setClearConvId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Apagar histórico da conversa
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Todas as mensagens desta conversa serão permanentemente apagadas. Esta ação não pode ser revertida.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmClearConversation} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Apagar tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Close conversation */}
+      <AlertDialog open={!!closeConvId} onOpenChange={() => setCloseConvId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-amber-500" />
+              Encerrar conversa
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              A conversa será encerrada e deixará de aparecer na lista activa. O cliente poderá iniciar uma nova conversa.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmCloseConversation}>
+              Encerrar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Block user */}
+      <AlertDialog open={!!blockUserId} onOpenChange={() => setBlockUserId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-destructive" />
+              Bloquear utilizador
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              O utilizador será bloqueado e não poderá aceder ao site. Pode desbloquear mais tarde na página de Utilizadores.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBlockUser} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Bloquear
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

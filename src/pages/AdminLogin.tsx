@@ -20,6 +20,15 @@ const AdminLogin = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ready, setReady] = useState(false);
 
+  useEffect(() => {
+    const hasUnlock = sessionStorage.getItem('admin_access_unlocked') === 'true';
+    const hasSessionAuth = sessionStorage.getItem('admin_authenticated') === 'true';
+    if (!hasUnlock && !hasSessionAuth) {
+      toast.error('Acesso admin bloqueado. Toque no logotipo 5 vezes para desbloquear.');
+      navigate('/');
+    }
+  }, [navigate]);
+
   // If arriving with an active Firebase session but no sessionStorage flag,
   // sign out first so the admin MUST re-enter email & password every time
   useEffect(() => {
@@ -80,6 +89,7 @@ const AdminLogin = () => {
       }
 
       sessionStorage.setItem('admin_authenticated', 'true');
+      sessionStorage.setItem('admin_access_unlocked', 'true');
       toast.success('Bem-vindo(a), Admin!');
       navigate('/admin');
     } catch (authCheckError: any) {

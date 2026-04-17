@@ -3,12 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Upload, X, Loader2, Image as ImageIcon, AlertTriangle, Copy } from 'lucide-react';
+import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { firebaseAuth, firebaseStorage } from '@/integrations/firebase/client';
 import { cn } from '@/lib/utils';
 import { processImageForUpload } from '@/lib/imageUtils';
-import { parseFirebaseUploadError, UploadDiagnostic } from '@/lib/firebaseUploadDiagnostics';
 
 const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 const UPLOAD_TIMEOUT_MS = 45_000;
@@ -23,10 +22,7 @@ function uploadResumableWithTimeout(path: string, file: File) {
 
     const timeoutId = window.setTimeout(() => {
       task.cancel();
-      reject({
-        code: 'storage/canceled',
-        message: `Upload cancelado por timeout (${UPLOAD_TIMEOUT_MS / 1000}s).`,
-      });
+      reject(new Error(`Upload cancelado por timeout (${UPLOAD_TIMEOUT_MS / 1000}s).`));
     }, UPLOAD_TIMEOUT_MS);
 
     task.on(
@@ -74,7 +70,6 @@ export function ImageUpload({
 }: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [imageSource, setImageSource] = useState<'upload' | 'url'>(value ? 'url' : 'upload');
-  const [diagnostic, setDiagnostic] = useState<UploadDiagnostic | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -128,16 +123,13 @@ export function ImageUpload({
         publicUrl = await fileToDataUrl(optimized);
         toast.info('Storage indisponivel. Imagem salva em modo compatibilidade.');
       }
-
       onChange(publicUrl);
       setImageSource('upload');
-      setDiagnostic(null);
       toast.success('Imagem carregada com sucesso!');
-    } catch (error: unknown) {
+    } catch (error: any) {
       console.error('Upload error:', error);
-      const details = parseFirebaseUploadError(error);
-      setDiagnostic(details);
-      toast.error(details.summary);
+      const msg = error?.message || '';
+      toast.error('Erro ao carregar imagem: ' + (msg || 'Tente novamente ou use a opção URL'));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -148,24 +140,6 @@ export function ImageUpload({
 
   const handleRemove = () => {
     onChange('');
-    setDiagnostic(null);
-  };
-
-  const copyDiagnostic = async () => {
-    if (!diagnostic) return;
-    const report = [
-      `Codigo: ${diagnostic.code}`,
-      `Resumo: ${diagnostic.summary}`,
-      `Dica: ${diagnostic.hint}`,
-      `Tecnico: ${diagnostic.technical}`,
-    ].join('\n');
-
-    try {
-      await navigator.clipboard.writeText(report);
-      toast.success('Diagnostico copiado para a area de transferencia.');
-    } catch {
-      toast.error('Nao foi possivel copiar o diagnostico.');
-    }
   };
 
   return (
@@ -268,27 +242,6 @@ export function ImageUpload({
         />
       </div>
 
-      {diagnostic ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-amber-900">Modo diagnostico de upload</p>
-                <p className="text-xs text-amber-800">{diagnostic.summary}</p>
-              </div>
-            </div>
-            <Button type="button" size="sm" variant="outline" onClick={copyDiagnostic} className="h-7 text-xs">
-              <Copy className="h-3.5 w-3.5 mr-1" />
-              Copiar erro
-            </Button>
-          </div>
-          <p className="text-xs text-amber-900"><strong>Codigo:</strong> {diagnostic.code}</p>
-          <p className="text-xs text-amber-900"><strong>Dica:</strong> {diagnostic.hint}</p>
-          <p className="text-xs text-amber-900 break-all"><strong>Tecnico:</strong> {diagnostic.technical}</p>
-        </div>
-      ) : null}
-
       <input
         ref={fileInputRef}
         type="file"
@@ -320,14 +273,14 @@ export function MultiImageUpload({
   const [isUploading, setIsUploading] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
   const [imageSource, setImageSource] = useState<'upload' | 'url'>('upload');
-  const [diagnostic, setDiagnostic] = useState<UploadDiagnostic | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadToFirebase = async (file: File) => {
-    const fileExt = file.name.split('.').pop() || 'webp';
+    const optimizedFile = await processImageForUpload(file);
+    const fileExt = optimizedFile.name.split('.').pop() || 'webp';
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
     const storagePath = `${bucket}/${fileName}`;
-    await uploadResumableWithTimeout(storagePath, file);
+    await uploadResumableWithTimeout(storagePath, optimizedFile);
     return getDownloadURL(ref(firebaseStorage, storagePath));
   };
 
@@ -352,29 +305,14 @@ export function MultiImageUpload({
       }
 
       const validFiles = files.filter((f) => f.type.startsWith('image/') && f.size <= 5 * 1024 * 1024);
-      for (const file of validFiles) {
-        const optimized = await processImageForUpload(file);
-        let publicUrl: string;
-        try {
-          publicUrl = await uploadToFirebase(optimized);
-        } catch (uploadError) {
-          if (optimized.size > MAX_INLINE_IMAGE_BYTES) {
-            throw uploadError;
-          }
-          publicUrl = await fileToDataUrl(optimized);
-          toast.info('Storage indisponivel. Uma imagem foi salva em modo compatibilidade.');
-        }
-        newUrls.push(publicUrl);
-      }
+      const uploadedUrls = await Promise.all(validFiles.map((file) => uploadToFirebase(file)));
+      newUrls.push(...uploadedUrls);
 
       onChange([...values, ...newUrls]);
-      setDiagnostic(null);
       toast.success(`${newUrls.length} imagem(ns) carregada(s)!`);
-    } catch (error: unknown) {
+    } catch (error: any) {
       console.error('Upload error:', error);
-      const details = parseFirebaseUploadError(error);
-      setDiagnostic(details);
-      toast.error(details.summary);
+      toast.error('Erro ao carregar imagens');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -383,23 +321,6 @@ export function MultiImageUpload({
 
   const handleRemove = (index: number) => {
     onChange(values.filter((_, i) => i !== index));
-  };
-
-  const copyDiagnostic = async () => {
-    if (!diagnostic) return;
-    const report = [
-      `Codigo: ${diagnostic.code}`,
-      `Resumo: ${diagnostic.summary}`,
-      `Dica: ${diagnostic.hint}`,
-      `Tecnico: ${diagnostic.technical}`,
-    ].join('\n');
-
-    try {
-      await navigator.clipboard.writeText(report);
-      toast.success('Diagnostico copiado para a area de transferencia.');
-    } catch {
-      toast.error('Nao foi possivel copiar o diagnostico.');
-    }
   };
 
   const handleAddUrl = () => {
@@ -490,27 +411,6 @@ export function MultiImageUpload({
           </Button>
         </div>
       )}
-
-      {diagnostic ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-amber-900">Modo diagnostico de upload</p>
-                <p className="text-xs text-amber-800">{diagnostic.summary}</p>
-              </div>
-            </div>
-            <Button type="button" size="sm" variant="outline" onClick={copyDiagnostic} className="h-7 text-xs">
-              <Copy className="h-3.5 w-3.5 mr-1" />
-              Copiar erro
-            </Button>
-          </div>
-          <p className="text-xs text-amber-900"><strong>Codigo:</strong> {diagnostic.code}</p>
-          <p className="text-xs text-amber-900"><strong>Dica:</strong> {diagnostic.hint}</p>
-          <p className="text-xs text-amber-900 break-all"><strong>Tecnico:</strong> {diagnostic.technical}</p>
-        </div>
-      ) : null}
 
       <input
         ref={fileInputRef}

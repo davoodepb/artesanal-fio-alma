@@ -23,9 +23,10 @@ async function getOrCreateConversation(userId: string): Promise<string | null> {
   try {
     const { data: existing } = await supabase
       .from('chat_conversations')
-      .select('id, updated_at, created_at')
+      .select('id')
       .eq('customer_id', userId)
       .in('status', ['open', 'active'])
+      .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -260,6 +261,19 @@ const Checkout = () => {
     }
 
     setLoading(true);
+    let stockReserved = false;
+    let orderCompleted = false;
+    const rollbackStockReservation = async () => {
+      await Promise.allSettled(
+        items.map(({ product, quantity }) =>
+          (supabase.rpc as any)('increment_stock', {
+            p_product_id: product.id,
+            p_quantity: quantity,
+          })
+        )
+      );
+    };
+
     try {
       // Verify session is still valid before proceeding
       const { data: { session } } = await supabase.auth.getSession();
@@ -270,20 +284,53 @@ const Checkout = () => {
         return;
       }
 
-      // Verify stock availability before creating the order
+      // Validate stock snapshot in one query to avoid stale cart values.
+      const requestedByProduct = new Map<string, { name: string; quantity: number }>();
       for (const { product, quantity } of items) {
-        const { data: currentProduct } = await supabase
-          .from('products')
-          .select('stock, name')
-          .eq('id', product.id)
-          .single();
+        const existing = requestedByProduct.get(product.id);
+        requestedByProduct.set(product.id, {
+          name: product.name,
+          quantity: (existing?.quantity || 0) + quantity,
+        });
+      }
 
-        if (!currentProduct || currentProduct.stock < quantity) {
-          toast.error(`Stock insuficiente para "${currentProduct?.name || product.name}". Disponível: ${currentProduct?.stock ?? 0}`);
+      const productIds = Array.from(requestedByProduct.keys());
+      const { data: stockRows, error: stockReadError } = await supabase
+        .from('products')
+        .select('id, name, stock')
+        .in('id', productIds);
+
+      if (stockReadError) {
+        throw new Error(`Erro ao validar stock: ${stockReadError.message}`);
+      }
+
+      const stockById = new Map((stockRows || []).map((row: any) => [String(row.id), row]));
+      for (const [productId, requested] of requestedByProduct.entries()) {
+        const row = stockById.get(productId);
+        const available = Number(row?.stock || 0);
+        if (!row || available < requested.quantity) {
+          toast.error(`Stock insuficiente para "${row?.name || requested.name}". Disponível: ${available}`);
           setLoading(false);
           return;
         }
       }
+
+      // Reserve stock with RPC before creating order to reduce race conditions.
+      for (const [productId, requested] of requestedByProduct.entries()) {
+        const { error: reserveError } = await (supabase.rpc as any)('decrement_stock', {
+          p_product_id: productId,
+          p_quantity: requested.quantity,
+        });
+
+        if (reserveError) {
+          const reserveMessage = String(reserveError.message || '').toLowerCase();
+          if (reserveMessage.includes('insufficient stock') || reserveMessage.includes('stock insuficiente')) {
+            throw new Error(`Stock insuficiente para "${requested.name}" no momento da finalização.`);
+          }
+          throw new Error(`Erro ao reservar stock para "${requested.name}": ${reserveError.message}`);
+        }
+      }
+      stockReserved = true;
 
       const invNumber = generateInvoiceNumber();
 
@@ -371,26 +418,6 @@ const Checkout = () => {
         throw new Error(`Erro ao adicionar itens: ${itemsError.message}`);
       }
 
-      // Stock decrement and profile update are non-critical — don't fail the order
-      try {
-        // Try RPC first (if available), otherwise direct update
-        for (const { product, quantity } of items) {
-          const { error: rpcError } = await (supabase.rpc as any)('decrement_stock', {
-            p_product_id: product.id,
-            p_quantity: quantity,
-          });
-          // If RPC doesn't exist, fall back to direct update
-          if (rpcError) {
-            await supabase
-              .from('products')
-              .update({ stock: Math.max(0, product.stock - quantity) })
-              .eq('id', product.id);
-          }
-        }
-      } catch (stockErr) {
-        console.warn('Non-critical: stock update failed', stockErr);
-      }
-
       try {
         await supabase
           .from('profiles')
@@ -412,6 +439,7 @@ const Checkout = () => {
       setOrderId(order.id);
       setInvoiceNumber(invNumber);
       setOrderPlaced(true);
+      orderCompleted = true;
       clearCart();
       toast.success('Pedido realizado com sucesso!');
 
@@ -419,6 +447,9 @@ const Checkout = () => {
     } catch (err: any) {
       console.error('Checkout error:', err);
       const errorMsg = err?.message || 'Erro desconhecido';
+      if (stockReserved && !orderCompleted) {
+        await rollbackStockReservation();
+      }
       toast.error(`Erro ao realizar o pedido: ${errorMsg}`);
       if (user) notifyOrder(user.id, false, undefined, undefined, undefined, undefined, errorMsg);
     } finally {
