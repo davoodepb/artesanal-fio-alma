@@ -1,23 +1,179 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+
+    // ════════════════════════════════════════════
+    //  FUNÇÕES AUXILIARES
+    // ════════════════════════════════════════════
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    match /chat-images/{allPaths=**} {
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.admin == true ||
+        request.auth.uid == "5efzvBMxHXOBkQMU8VcVLXBX8QS2"
+      );
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Valida tipo de imagem
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    // Valida tamanho máximo (10 MB)
+    function isUnder10MB() {
+      return request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // Valida tamanho máximo menor (2 MB) para avatares
+    function isUnder2MB() {
+      return request.resource.size < 2 * 1024 * 1024;
+    }
+
+    // ════════════════════════════════════════════
+    //  IMAGENS DE PRODUTOS
+    //  FIX PRINCIPAL: admin pode fazer upload,
+    //  leitura é pública
+    // ════════════════════════════════════════════
+
+    match /produtos/{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isAdmin() && isImage() && isUnder10MB();
+    }
+
+    match /products/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
     }
 
     match /product-images/{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isAdmin() && isImage() && isUnder10MB();
     }
 
-    match /{allPaths=**} {
+    match /imagens-produtos/{allPaths=**} {
       allow read: if true;
-      allow write: if false;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
     }
+
+    // ════════════════════════════════════════════
+    //  CATEGORIAS
+    // ════════════════════════════════════════════
+
+    match /categorias/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
+    }
+
+    match /categories/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
+    }
+
+    // ════════════════════════════════════════════
+    //  BANNERS / ANÚNCIOS
+    // ════════════════════════════════════════════
+
+    match /banners/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
+    }
+
+    match /anuncios/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
+    }
+
+    match /announcements/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && isUnder10MB();
+    }
+
+    // ════════════════════════════════════════════
+    //  AVATARES / FOTOS DE PERFIL
+    //  Cada utilizador só carrega o seu avatar
+    // ════════════════════════════════════════════
+
+    match /avatars/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if (isOwner(userId) || isAdmin())
+        && isImage()
+        && isUnder2MB();
+    }
+
+    match /avatares/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if (isOwner(userId) || isAdmin())
+        && isImage()
+        && isUnder2MB();
+    }
+
+    match /profile-pictures/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if (isOwner(userId) || isAdmin())
+        && isImage()
+        && isUnder2MB();
+    }
+
+    // ════════════════════════════════════════════
+    //  IMAGENS DO CHAT
+    //  Utilizadores autenticados podem enviar
+    // ════════════════════════════════════════════
+
+    match /chat-images/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isImage() && isUnder10MB();
+    }
+
+    match /imagens-chat/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isImage() && isUnder10MB();
+    }
+
+    // ════════════════════════════════════════════
+    //  DOCUMENTOS DE ENCOMENDA
+    //  (faturas, comprovantes)
+    // ════════════════════════════════════════════
+
+    match /orders/{orderId}/{fileName} {
+      allow read: if isAuthenticated() && isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /encomendas/{orderId}/{fileName} {
+      allow read: if isAuthenticated() && isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  TEMAS / SETTINGS DO SITE
+    // ════════════════════════════════════════════
+
+    match /site-settings/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /themes/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  FALLBACK DE SEGURANÇA
+    //  Bloqueia tudo o que não foi explicitamente
+    //  permitido acima
+    // ════════════════════════════════════════════
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
   }
 }

@@ -35,7 +35,8 @@ interface Order {
     quantity?: number;
     category?: string | null;
   }>;
-  created_at: string;
+  created_at: string | null;
+  updated_at?: string | null;
 }
 
 interface OrderItem {
@@ -78,6 +79,55 @@ const paymentIcons: Record<string, React.ReactNode> = {
   paypal: <CreditCard className="h-3.5 w-3.5" />,
 };
 
+const toIsoString = (value: any): string | null => {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return new Date(value).toISOString();
+  if (typeof value?.toDate === 'function') return value.toDate().toISOString();
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000).toISOString();
+  return null;
+};
+
+const extractFromNotes = (notes: string | null, label: string): string | null => {
+  if (!notes) return null;
+  const lines = notes.split(/\r?\n/);
+  const match = lines.find((line) => line.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+  if (!match) return null;
+  return match.split(':').slice(1).join(':').trim() || null;
+};
+
+const normalizeItems = (rawItems: any): Order['items'] | undefined => {
+  if (!rawItems) return undefined;
+  if (Array.isArray(rawItems)) return rawItems;
+  if (typeof rawItems === 'object') return Object.values(rawItems);
+  return undefined;
+};
+
+const normalizeOrder = (raw: any): Order => {
+  const notes = raw?.notes ?? null;
+  return {
+    id: String(raw?.id || ''),
+    user_id: raw?.user_id || raw?.userId || null,
+    status: (raw?.status || 'pending') as Order['status'],
+    total: Number(raw?.total ?? raw?.amount ?? 0),
+    customer_name: raw?.customer_name || raw?.customerName || null,
+    customer_email: raw?.customer_email || raw?.customerEmail || extractFromNotes(notes, 'Email'),
+    customer_phone: raw?.customer_phone || raw?.customerPhone || null,
+    shipping_address_line1: raw?.shipping_address_line1 || raw?.shippingAddressLine1 || null,
+    shipping_city: raw?.shipping_city || raw?.shippingCity || null,
+    shipping_postal_code: raw?.shipping_postal_code || raw?.shippingPostalCode || null,
+    shipping_country: raw?.shipping_country || raw?.shippingCountry || null,
+    customer_nif: raw?.customer_nif || raw?.customerNif || extractFromNotes(notes, 'NIF'),
+    shipping_address: raw?.shipping_address || raw?.shippingAddress || raw?.address || null,
+    notes,
+    invoice_number: raw?.invoice_number || raw?.invoiceNumber || null,
+    payment_method: raw?.payment_method || raw?.paymentMethod || null,
+    items: normalizeItems(raw?.items),
+    created_at: toIsoString(raw?.created_at || raw?.createdAt || raw?.timestamp),
+    updated_at: toIsoString(raw?.updated_at || raw?.updatedAt),
+  };
+};
+
 export function AdminOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -102,7 +152,13 @@ export function AdminOrders() {
 
       if (error) throw error;
 
-      setOrders((data || []) as Order[]);
+      const normalized = (data || []).map(normalizeOrder);
+      normalized.sort((a, b) => {
+        const at = new Date(a.created_at || 0).getTime();
+        const bt = new Date(b.created_at || 0).getTime();
+        return bt - at;
+      });
+      setOrders(normalized);
     } catch (error: any) {
       console.error('Error fetching orders:', error);
       setLoadError(error?.message || 'Falha ao carregar pedidos.');
@@ -121,7 +177,7 @@ export function AdminOrders() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'orders' },
         (payload) => {
-          const incoming = payload.new as Order;
+          const incoming = normalizeOrder(payload.new as Order);
           setOrders((prev) => {
             if (prev.some((o) => o.id === incoming.id)) return prev;
             return [incoming, ...prev];
@@ -132,7 +188,7 @@ export function AdminOrders() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload) => {
-          const updated = payload.new as Order;
+          const updated = normalizeOrder(payload.new as Order);
           setOrders((prev) => prev.map((order) => (order.id === updated.id ? { ...order, ...updated } : order)));
         }
       )
@@ -158,11 +214,12 @@ export function AdminOrders() {
     if (order?.items?.length) {
       const derived = order.items.map((item, index) => ({
         id: `${orderId}-${index}`,
-        product_name: item.name || 'Produto',
+        product_name: item.name || (item as any).product_name || 'Produto',
         category: item.category || null,
-        quantity: Number(item.quantity || 0),
-        unit_price: Number(item.price || 0),
-        subtotal: Number(item.price || 0) * Number(item.quantity || 0),
+        quantity: Number(item.quantity || (item as any).qty || 0),
+        unit_price: Number(item.price || (item as any).unit_price || 0),
+        subtotal:
+          Number(item.price || (item as any).unit_price || 0) * Number(item.quantity || (item as any).qty || 0),
       }));
       setOrderItems(prev => ({ ...prev, [orderId]: derived }));
     }
@@ -248,11 +305,12 @@ export function AdminOrders() {
         } else {
           const derived = (order.items || []).map((item, index) => ({
             id: `${order.id}-${index}`,
-            product_name: item.name || 'Produto',
+            product_name: item.name || (item as any).product_name || 'Produto',
             category: item.category || null,
-            quantity: Number(item.quantity || 0),
-            unit_price: Number(item.price || 0),
-            subtotal: Number(item.price || 0) * Number(item.quantity || 0),
+            quantity: Number(item.quantity || (item as any).qty || 0),
+            unit_price: Number(item.price || (item as any).unit_price || 0),
+            subtotal:
+              Number(item.price || (item as any).unit_price || 0) * Number(item.quantity || (item as any).qty || 0),
           }));
           setOrderItems(prev => ({ ...prev, [order.id]: derived }));
           openInvoiceFromData(order, derived);
@@ -316,7 +374,7 @@ export function AdminOrders() {
       const iva = total - base;
       return [
         o.invoice_number || '-',
-        new Date(o.created_at).toLocaleDateString('pt-PT'),
+        o.created_at ? new Date(o.created_at).toLocaleDateString('pt-PT') : '-',
         statusLabels[o.status] || o.status,
         o.customer_name || extractNameFromAddress(o.shipping_address),
         o.customer_email || '',
@@ -480,7 +538,7 @@ export function AdminOrders() {
                         {order.invoice_number || order.id.substring(0, 8)}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {new Date(order.created_at).toLocaleDateString('pt-PT')}
+                        {order.created_at ? new Date(order.created_at).toLocaleDateString('pt-PT') : '—'}
                       </TableCell>
                       <TableCell>
                         {order.payment_method ? (

@@ -2,12 +2,359 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    match /messages/{messageId} {
-      allow read, write: if request.auth != null;
+    // ════════════════════════════════════════════
+    //  FUNÇÕES AUXILIARES
+    // ════════════════════════════════════════════
+
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.admin == true ||
+        request.auth.uid == "5efzvBMxHXOBkQMU8VcVLXBX8QS2"
+      );
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isDocOwner(field) {
+      return request.auth != null && (
+        resource.data[field] == request.auth.uid
+      );
+    }
+
+    function isNewDocOwner(field) {
+      return request.auth != null && (
+        request.resource.data[field] == request.auth.uid
+      );
+    }
+
+    // ════════════════════════════════════════════
+    //  PRODUTOS / CATEGORIAS  (leitura pública)
+    // ════════════════════════════════════════════
+
+    match /produtos/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+    match /products/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+    match /categorias/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+    match /categories/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  ENCOMENDAS / ORDERS / PEDIDOS
+    //  FIX: utilizador vê os seus pedidos,
+    //       admin atualiza estado
+    // ════════════════════════════════════════════
+
+    match /encomendas/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        isNewDocOwner("userId") || isNewDocOwner("user_id")
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() && (isDocOwner("userId") || isDocOwner("user_id"))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        isNewDocOwner("userId") || isNewDocOwner("user_id")
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() && (isDocOwner("userId") || isDocOwner("user_id"))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /pedidos/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        isNewDocOwner("userId") || isNewDocOwner("user_id")
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() && (isDocOwner("userId") || isDocOwner("user_id"))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  ITENS DE ENCOMENDA
+    // ════════════════════════════════════════════
+
+    match /order_items/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    match /itens_encomenda/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  PERFIS / PROFILES
+    // ════════════════════════════════════════════
+
+    match /profiles/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create, update: if isAuthenticated() && (
+        isNewDocOwner("userId") || isNewDocOwner("user_id") || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /perfis/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create, update: if isAuthenticated() && (
+        isNewDocOwner("userId") || isNewDocOwner("user_id") || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  UTILIZADORES
+    // ════════════════════════════════════════════
+
     match /users/{userId} {
-      allow read, write: if request.auth != null;
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/{document=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  CARRINHOS
+    // ════════════════════════════════════════════
+
+    match /carrinhos/{userId}/{document=**} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    match /carts/{userId}/{document=**} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  REVIEWS
+    // ════════════════════════════════════════════
+
+    match /reviews/{id} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && (
+        isDocOwner("userId") || isAdmin()
+      );
+    }
+
+    // ════════════════════════════════════════════
+    //  ANÚNCIOS / BANNERS / NOVIDADES
+    // ════════════════════════════════════════════
+
+    match /anuncios/{id}       { allow read: if true; allow write: if isAdmin(); }
+    match /announcements/{id}  { allow read: if true; allow write: if isAdmin(); }
+    match /ads/{id}            { allow read: if true; allow write: if isAdmin(); }
+    match /banners/{id}        { allow read: if true; allow write: if isAdmin(); }
+    match /novidades/{id}      { allow read: if true; allow write: if isAdmin(); }
+
+    // ════════════════════════════════════════════
+    //  DEFINIÇÕES DO SITE / TEMAS
+    // ════════════════════════════════════════════
+
+    match /site_settings/{id}    { allow read: if true; allow write: if isAdmin(); }
+    match /definicoes_site/{id}  { allow read: if true; allow write: if isAdmin(); }
+    match /seasonal_themes/{id}  { allow read: if true; allow write: if isAdmin(); }
+    match /temas_sazonais/{id}   { allow read: if true; allow write: if isAdmin(); }
+
+    // ════════════════════════════════════════════
+    //  NEWSLETTER
+    // ════════════════════════════════════════════
+
+    match /newsletter_subscribers/{id} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    match /subscritores_newsletter/{id} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  CHAT CONVERSATIONS
+    //  FIX: admin pode ler TODAS as conversas,
+    //       criar conversa mesmo sem campo userId
+    // ════════════════════════════════════════════
+
+    match /chat_conversations/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("customer_id") ||
+        isDocOwner("customerId") ||
+        isDocOwner("userId") ||
+        isDocOwner("user_id") ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        isNewDocOwner("customer_id") ||
+        isNewDocOwner("customerId") ||
+        isNewDocOwner("userId") ||
+        isNewDocOwner("user_id") ||
+        isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        isDocOwner("customer_id") ||
+        isDocOwner("customerId") ||
+        isDocOwner("userId") ||
+        isDocOwner("user_id") ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /conversas_chat/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("customer_id") ||
+        isDocOwner("customerId") ||
+        isDocOwner("userId") ||
+        isDocOwner("user_id") ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        isNewDocOwner("customer_id") ||
+        isNewDocOwner("customerId") ||
+        isNewDocOwner("userId") ||
+        isNewDocOwner("user_id") ||
+        isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        isDocOwner("customer_id") ||
+        isDocOwner("customerId") ||
+        isDocOwner("userId") ||
+        isDocOwner("user_id") ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  CHAT MESSAGES
+    //  FIX: qualquer autenticado pode ler e criar,
+    //       só o remetente ou admin pode apagar
+    // ════════════════════════════════════════════
+
+    match /chat_messages/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        isDocOwner("sender_id") ||
+        isDocOwner("senderId") ||
+        isDocOwner("userId") ||
+        isDocOwner("user_id")
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /mensagens_chat/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        isDocOwner("sender_id") ||
+        isDocOwner("senderId")
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /chatMessages/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        isDocOwner("userId") ||
+        isDocOwner("user_id") ||
+        isDocOwner("sender_id")
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════
+    //  LEGACY (mensagens / chats genéricos)
+    //  Mantidos para compatibilidade
+    // ════════════════════════════════════════════
+
+    match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /messages/{id} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ════════════════════════════════════════════
+    //  NOTIFICAÇÕES
+    // ════════════════════════════════════════════
+
+    match /notificacoes/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAdmin();
+      allow update: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id")
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{id} {
+      allow read: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id") || isAdmin()
+      );
+      allow create: if isAdmin();
+      allow update: if isAuthenticated() && (
+        isDocOwner("userId") || isDocOwner("user_id")
+      );
+      allow delete: if isAdmin();
     }
 
   }

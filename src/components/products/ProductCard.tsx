@@ -64,7 +64,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
           className="w-full h-full object-contain p-2 image-zoom"
           loading="lazy"
           decoding="async"
-          fetchPriority="low"
+          fetchpriority="low"
         />
         
         {/* Badges */}

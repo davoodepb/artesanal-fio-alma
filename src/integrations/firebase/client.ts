@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAnalytics } from 'firebase/analytics';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -14,6 +15,7 @@ const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || 'vercel-artesanal-
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyBBNRuFL5ZE0MWeJFBJMhnBQGIlAwD1EaY',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'vercel-artesanal-fio-e-alma.firebaseapp.com',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://vercel-artesanal-fio-e-alma-default-rtdb.europe-west1.firebasedatabase.app',
   projectId,
   storageBucket: normalizeBucket(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET, projectId),
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '232054244911',
@@ -24,6 +26,7 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const firebaseApp = app;
+export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 export const firebaseAuth = getAuth(app);
 export const firestore = getFirestore(app);
 export const firebaseStorage = getStorage(app);

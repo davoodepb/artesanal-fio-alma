@@ -143,7 +143,7 @@ const ProductDetail = () => {
                 alt={product.name}
                 className="w-full h-full object-contain p-4"
                 decoding="async"
-                fetchPriority="high"
+                fetchpriority="high"
               />
               {discount > 0 && (
                 <Badge variant="destructive" className="absolute top-4 left-4 text-lg px-3 py-1">

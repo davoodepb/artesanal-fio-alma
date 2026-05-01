@@ -112,7 +112,7 @@ const Account = () => {
           });
         } else {
           setProfile({
-            full_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+            full_name: user.raw?.displayName || '',
             phone: '',
             address: '',
             nif: '',
@@ -551,7 +551,7 @@ const Account = () => {
                 <p className="text-sm font-medium text-muted-foreground mb-2">Conta</p>
                 <p className="text-sm truncate">{user.email}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Membro desde {new Date(user.created_at).toLocaleDateString('pt-PT')}
+                  Membro desde {new Date(user.raw?.metadata?.creationTime || Date.now()).toLocaleDateString('pt-PT')}
                 </p>
               </CardContent>
             </Card>

@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { sendMessage, sendMessageWithImage, listenMessagesByThread } from '@/lib/firebase/chatService';
+import { ensureConversationForUser, listenMessagesByConversation, sendMessage, sendMessageWithImage } from '@/lib/firebase/chatService';
 import { uploadImage } from '@/lib/firebase/uploadService';
 import { ensureUserDocument, subscribeCurrentUser } from '@/lib/firebase/userService';
 
@@ -25,6 +25,7 @@ interface ChatMessage {
   userId?: string;
   senderRole?: 'customer' | 'admin' | string;
   threadId?: string;
+  conversationId?: string;
   createdAt?: FirestoreTimestampLike | string | number | null;
 }
 
@@ -97,6 +98,7 @@ export function CustomerChat() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatInitError, setChatInitError] = useState<string | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaWrapperRef = useRef<HTMLDivElement>(null);
@@ -128,6 +130,7 @@ export function CustomerChat() {
       setUnreadCount(0);
       knownMessageIdsRef.current = new Set();
       setIsBlocked(false);
+      setConversationId(null);
       return;
     }
 
@@ -149,45 +152,66 @@ export function CustomerChat() {
     setChatInitError(null);
 
     let initialized = false;
-    const unsubscribe = listenMessagesByThread(
-      user.id,
-      (incomingMessages: ChatMessage[]) => {
-        const sorted = sortMessages(incomingMessages || []);
+    let disposed = false;
+    let unsubscribeMessages = () => {};
 
-        if (!initialized) {
-          initialized = true;
-          knownMessageIdsRef.current = new Set(sorted.map((msg) => msg.id));
-          setMessages(sorted);
-          setIsLoading(false);
-          return;
+    const boot = async () => {
+      try {
+        const conversation = await ensureConversationForUser(user.id);
+        if (disposed) return;
+        if (!conversation?.id) {
+          throw new Error('Conversa nao encontrada.');
         }
 
-        const previousIds = knownMessageIdsRef.current;
-        const newAdminMessages = sorted.filter((msg) => {
-          if (previousIds.has(msg.id)) return false;
-          return getSenderRole(msg, user.id) === 'admin';
-        });
+        setConversationId(conversation.id);
+        unsubscribeMessages = listenMessagesByConversation(
+          conversation.id,
+          (incomingMessages: ChatMessage[]) => {
+            const sorted = sortMessages(incomingMessages || []);
 
-        if (newAdminMessages.length > 0 && !isOpen) {
-          setUnreadCount((prev) => prev + newAdminMessages.length);
-          toast.info('Nova mensagem da equipa de suporte.');
-          triggerBrowserNotification('Nova mensagem no chat', 'A equipa respondeu no seu chat.');
-        }
+            if (!initialized) {
+              initialized = true;
+              knownMessageIdsRef.current = new Set(sorted.map((msg) => msg.id));
+              setMessages(sorted);
+              setIsLoading(false);
+              return;
+            }
 
-        knownMessageIdsRef.current = new Set(sorted.map((msg) => msg.id));
-        setMessages(sorted);
-        setIsLoading(false);
-      },
-      (error: unknown) => {
-        console.error('Erro no listener do chat:', error);
-        setChatInitError('Nao foi possivel carregar o chat neste momento.');
+            const previousIds = knownMessageIdsRef.current;
+            const newAdminMessages = sorted.filter((msg) => {
+              if (previousIds.has(msg.id)) return false;
+              return getSenderRole(msg, user.id) === 'admin';
+            });
+
+            if (newAdminMessages.length > 0 && !isOpen) {
+              setUnreadCount((prev) => prev + newAdminMessages.length);
+              toast.info('Nova mensagem da equipa de suporte.');
+              triggerBrowserNotification('Nova mensagem no chat', 'A equipa respondeu no seu chat.');
+            }
+
+            knownMessageIdsRef.current = new Set(sorted.map((msg) => msg.id));
+            setMessages(sorted);
+            setIsLoading(false);
+          },
+          (error: unknown) => {
+            console.error('Erro no listener do chat:', error);
+            setChatInitError('Nao foi possivel carregar o chat neste momento.');
+            setIsLoading(false);
+          }
+        );
+      } catch (error) {
+        console.error('Erro ao iniciar conversa:', error);
+        setChatInitError('Nao foi possivel iniciar o chat neste momento.');
         setIsLoading(false);
       }
-    );
+    };
+
+    boot();
 
     return () => {
+      disposed = true;
       unsubscribeUser();
-      unsubscribe();
+      unsubscribeMessages();
     };
   }, [user, isOpen]);
 
@@ -231,8 +255,13 @@ export function CustomerChat() {
 
     setIsSending(true);
     try {
+      const resolvedConversationId = conversationId || (await ensureConversationForUser(user.id))?.id;
+      if (!resolvedConversationId) {
+        throw new Error('Nao foi possivel iniciar a conversa.');
+      }
+
       await sendMessage(newMessage, {
-        threadId: user.id,
+        conversationId: resolvedConversationId,
         senderRole: 'customer',
         targetUserId: 'admin',
       });
@@ -276,9 +305,14 @@ export function CustomerChat() {
         onProgress: (progress: number) => setUploadProgress(Math.round(progress)),
       })) as { url: string };
 
+      const resolvedConversationId = conversationId || (await ensureConversationForUser(user.id))?.id;
+      if (!resolvedConversationId) {
+        throw new Error('Nao foi possivel iniciar a conversa.');
+      }
+
       await sendMessageWithImage({
         imageUrl: uploaded.url,
-        threadId: user.id,
+        conversationId: resolvedConversationId,
         senderRole: 'customer',
         targetUserId: 'admin',
       });

@@ -17,32 +17,27 @@ export function Layout({ children }: LayoutProps) {
 
   // Secret admin access: tap logo 5 times quickly
   const handleAdminTap = useCallback(() => {
-    setTapCount((prev) => {
-      const newCount = prev + 1;
-      
-      // Reset timer on each tap
+    setTapCount((prev) => prev + 1);
+  }, []);
+
+  React.useEffect(() => {
+    if (tapCount > 0) {
       if (tapTimer.current) {
         clearTimeout(tapTimer.current);
       }
       
-      // Reset count after 2 seconds of no taps
       tapTimer.current = setTimeout(() => {
         setTapCount(0);
       }, 2000);
       
-      // Navigate to admin login after 5 taps
-      if (newCount >= 5) {
+      if (tapCount >= 5) {
         setTapCount(0);
-        if (tapTimer.current) {
-          clearTimeout(tapTimer.current);
-        }
+        if (tapTimer.current) clearTimeout(tapTimer.current);
         sessionStorage.setItem('admin_access_unlocked', 'true');
         navigate('/admin');
       }
-      
-      return newCount;
-    });
-  }, [navigate]);
+    }
+  }, [tapCount, navigate]);
 
   return (
     <div className="min-h-screen flex flex-col">
