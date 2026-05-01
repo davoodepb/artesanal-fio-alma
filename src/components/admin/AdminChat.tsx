@@ -83,6 +83,14 @@ interface Message {
   created_at: string;
 }
 
+function toDateValue(val: any): Date {
+  if (!val) return new Date();
+  if (typeof val.toDate === 'function') return val.toDate();
+  if (typeof val.seconds === 'number') return new Date(val.seconds * 1000);
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
 export function AdminChat() {
   const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -531,7 +539,7 @@ export function AdminChat() {
                             : 'Sem mensagens'}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {format(new Date(conv.updated_at), "d 'de' MMM, HH:mm", { locale: pt })}
+                          {format(toDateValue(conv.updated_at), "d 'de' MMM, HH:mm", { locale: pt })}
                         </p>
                       </div>
                     </button>
@@ -581,7 +589,7 @@ export function AdminChat() {
                       <CardTitle className="text-lg">{selectedConversation.customer_name}</CardTitle>
                       <p className="text-sm text-muted-foreground">
                         {selectedConversation.customer_email ||
-                          `Conversa iniciada em ${format(new Date(selectedConversation.created_at), "d 'de' MMMM", { locale: pt })}`
+                          `Conversa iniciada em ${format(toDateValue(selectedConversation.created_at), "d 'de' MMMM", { locale: pt })}`
                         }
                       </p>
                     </div>
@@ -629,7 +637,7 @@ export function AdminChat() {
                             <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">🔔 Notificação</p>
                             <p className="text-sm whitespace-pre-line text-amber-800 dark:text-amber-200">{msg.content}</p>
                             <p className="text-xs mt-1 text-amber-500 dark:text-amber-400">
-                              {format(new Date(msg.created_at), 'HH:mm')}
+                              {format(toDateValue(msg.created_at), 'HH:mm')}
                             </p>
                             <Button
                               variant="ghost"
@@ -658,7 +666,7 @@ export function AdminChat() {
                               <p className={`text-xs mt-1 ${
                                 msg.sender_role === 'admin' ? 'text-primary-foreground/70' : 'text-muted-foreground'
                               }`}>
-                                {format(new Date(msg.created_at), 'HH:mm')}
+                                {format(toDateValue(msg.created_at), 'HH:mm')}
                               </p>
                             </div>
                             {/* Delete message button (visible on hover) */}

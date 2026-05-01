@@ -208,7 +208,7 @@ export function listenMessagesByConversation(conversationId, onChange, onError) 
     const orderField = isLegacy ? 'createdAt' : 'created_at';
 
     try {
-      const q = query(messagesRef(collectionName), where(fieldName, '==', safeConversationId), orderBy(orderField, 'asc'));
+      const q = query(messagesRef(collectionName), where(fieldName, '==', safeConversationId));
       unsubscribe = onSnapshot(
         q,
         (snapshot) => {
